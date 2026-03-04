@@ -1,0 +1,34 @@
+= Showroom Template
+
+A template for creating Red Hat Showroom lab guides and demo content, built with https://antora.org[Antora].
+
+* 0% cruft
+* Red Hat Demo Platform UI Bundle default
+* Dev Mode extension that displays the asciidoc attributes you have to work with
+
+== Documentation
+
+Full documentation — getting started, content structure, configuration, local development, and AI-assisted content creation — is available at:
+
+https://rhpds.github.io/showroom_template_nookbag/
+
+== Quick Start
+
+. https://github.com/rhpds/showroom_template_nookbag/generate[Create a repo from this template] (suggested naming: `showroom_<lab-name>`)
+. Clone your new repo and preview locally:
++
+[source,sh]
+----
+podman run --rm --name antora -v $PWD:/antora -p 8080:8080 -i -t ghcr.io/juliaaano/antora-viewer
+----
++
+On SELinux systems, append `:z` to the volume mount.
+
+. Edit content in `content/modules/ROOT/pages/`
+. See the https://rhpds.github.io/showroom_template_nookbag/modules/content-repo.html[Content Repository] docs for directory layout, Podman Compose with live reload, dev mode, and more.
+
+== Create Content with AI
+
+The https://github.com/rhpds/rhdp-skills-marketplace[RHDP Skills Marketplace] provides skills for Cursor IDE and Claude Code that generate labs, demos, and validate content against Red Hat standards.
+
+See the https://rhpds.github.io/showroom_template_nookbag/modules/content-repo.html#_creating_content_with_ai_tools[AI Tools documentation] for details.
