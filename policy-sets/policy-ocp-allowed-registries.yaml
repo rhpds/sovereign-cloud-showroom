@@ -1,0 +1,62 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-ocp-allowed-registries
+  namespace: policies
+  annotations:
+    policy.open-cluster-management.io/standards: CIS-OCP
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: 5.5.1 Allowed Registries
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: enforce-allowed-registries-icsp
+        spec:
+          remediationAction: enforce
+          severity: high
+          namespaceSelector:
+            exclude:
+              - kube-*
+            include:
+              - "*"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operator.openshift.io/v1alpha1
+                kind: ImageContentSourcePolicy
+                metadata:
+                  name: allowed-registries-cis-enforce
+                spec:
+                  repositoryDigestMirrors:
+                    - mirrors:
+                        - your-mirror.example.com:5000/openshift4
+                      source: registry.redhat.io/openshift4
+                    - mirrors:
+                        - your-mirror.example.com:5000/ubi8
+                      source: registry.redhat.io/ubi8
+                    - mirrors:
+                        - your-mirror.example.com:5000/rhel8
+                      source: registry.redhat.io/rhel8
+                    - mirrors:
+                        - your-mirror.example.com:5000/quay
+                      source: quay.io
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: detect-unrestricted-registries
+        spec:
+          remediationAction: inform
+          severity: medium
+          object-templates:
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: operator.openshift.io/v1alpha1
+                kind: ImageContentSourcePolicy
+                metadata:
+                  name: unrestricted-registries

@@ -1,0 +1,23 @@
+apiVersion: perses.dev/v1alpha1
+kind: PersesDatasource
+metadata:
+  name: sample-rhacs-operator-datasource
+  namespace: rhacs-operator
+spec:
+  client:
+    tls:
+      caCert:
+        certPath: /ca/service-ca.crt
+        type: file
+      enable: true
+  config:
+    default: true
+    display:
+      name: RHACS Prometheus Datasource
+    plugin:
+      kind: PrometheusDatasource
+      spec:
+        proxy:
+          kind: HTTPProxy
+          spec:
+            url: 'http://prometheus-operated.rhacs-operator.svc.cluster.local:9090'

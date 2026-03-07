@@ -1,94 +1,183 @@
-= What is Showroom?
-:navtitle: What is Showroom?
+[[labname]]
 
-Showroom is a web-based lab instruction platform for the https://demo.redhat.com[Red Hat Demo Platform].
-It combines rendered AsciiDoc content with embedded terminals, consoles, and interactive tools -- giving workshop and demo participants everything they need in a single browser tab.
+= {lab_name}
 
-== What Users See
+[IMPORTANT]
+====
+Do the modules in order and follow the instructions carefully. And make sure to run all of the scripts on this page before proceeding to the next module.
+====
 
-When a participant opens their Showroom URL they get a split-pane interface:
+[[introduction]]
+== Introduction
 
-* **Left pane** -- step-by-step lab instructions rendered from an https://antora.org[Antora] site you author in AsciiDoc.
-* **Right pane** -- one or more tabs such as:
-** A web terminal (SSH to a bastion, containerised CLI tools, or both).
-** The OpenShift web console embedded in an iframe.
-** A VS Code editor (Code Server).
-** A VNC desktop (noVNC).
-** Any external URL you choose.
+Customers today want flexibility. They want to do more, with less, while accelerating AI adoption to stay ahead of the market. Geographic specific compliance standards, petabytes of data in restricted environments, and increasing provider costs are all pushing organizations to reevaluate their technology strategies. Customers are seeking Sovereign Cloud solutions to provide the flexibility necessary to be adaptive in the age of AI and geographic specific requirements.
 
-The UI layout, tab names, and tab URLs are all controlled by a simple `ui-config.yml` file that lives in your content repository.
+Red Hat is perfectly positioned to take advantage of these customer needs. With Red Hat's existing hybrid cloud approach, setting up an automated sovereign cloud architecture is simple. Red Hat has the tools to manage data privacy and compliance concerns, bringing simplified management of OpenShift clusters, containers, virtual machines, and AI applications, while providing hardened authorization, authentication, data controls, encryption, vulnerability management, and more.
 
-== How It Gets Deployed
+In this lab, you will progress through a simplified migration process where you, the customer, will bring your workflows and applications to an on premise and cloud environment, bringing your platform, to your data, in a compliant, secure, and repeatable manner.
 
-This Ansible collection -- `agnosticd.showroom` -- is the primary way Showroom instances are deployed on the Red Hat Demo Platform.
-Depending on the environment type, you use one of two roles:
+[[what-youll-learn]]
+== What You'll Learn
 
-[cols="1,3",options="header"]
+This lab demonstrates how Red Hat Solutions can empower enterprises to manage their own sovereign cloud architectures enabling application and data mobility and policy enforcement.
+
+Through hands-on activities, you will:
+
+* Configure geographically-distributed OpenShift clusters with automated compliance policies
+* Implement workload placement strategies that enforce data residency requirements
+* Deploy applications with built-in sovereignty enforcement
+* Establish audit trails and compliance reporting for regulatory demonstrations
+* Design disaster recovery scenarios that maintain geographic data constraints
+
+[[prerequisites]]
+== Prerequisites
+
+Before beginning this lab, you should have:
+
+* Solid OpenShift administration experience
+* Familiarity with multi-cluster concepts
+
+[[lab-modules]]
+== Lab Modules
+
+This lab is organized into four modules:
+
+* xref:module-01.adoc[Module 1: Operations and Security] - Multi-environment cluster and workload management
+* xref:module-02.adoc[Module 2: Assurance] - Cluster conformance, compliance, and security insights
+* xref:module-03.adoc[Module 3: Technology and Supply Chain] - Secure supply chain and SLSA framework
+* xref:module-04.adoc[Module 4: Data and AI] - Data pipelines and AI compute capabilities
+
+[[getting-started]]
+== Getting Started
+
+The Environment for this lab already provides the following links for you:
+
+* This content on the left
+* On the right there are three tabs:
+** *OpenShift Console*: this is where you will spend the majority of the time configuring the various environments and applications
+** *Red Hat Advanced Cluster Security*: the console for configuring security related items
+** *Bastion*: command line access to the environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
+
+Before proceeding with the lab modules, you will need to configure kubectl contexts for the clusters, install a few insecure applications and the roxctl CLI tool.
+
+=== Configure kubectl contexts
+
+This lab uses two OpenShift clusters. You'll need to set up kubectl contexts to easily switch between them.
+
+*Procedure*
+
+[start=1]
+. Switch to the *Bastion* tab, located on the right side of the screen.
+. Log in to the AWS cluster and create the `aws-us` context and rename the existing `admin` context to `local-cluster`
++
+[source,sh,subs="attributes",role=execute]
+----
+oc config rename-context admin local-cluster
+oc login -u kubeadmin -p {aws_openshift_kubeadmin_password} {aws_openshift_api_url} --insecure-skip-tls-verify
+oc config rename-context $(oc config current-context) aws-us
+----
+
+. Verify that the changes have occured and the context is configured:
++
+[source,sh,role=execute]
+----
+oc config get-contexts
+----
++
+.**OUTPUT**
+[source,sh]
+----
+[lab-user@bastion ~]$ oc config get-contexts
+CURRENT   NAME            CLUSTER            AUTHINFO
+*         aws-us          api-ocp-...:6443   kube:admin/...:6443
+          local-cluster   ocp                admin
+----
++
+Now you are able to switch between contexts as needed.
+
+. Make sure to switch back to the local cluster context before continuing.
++
+[source,sh,role=execute]
+----
+# Switch back to local cluster
+oc config use-context local-cluster
+----
++
+IMPORTANT: You will need to switch between contexts as needed throughout the lab. Please ensure you have access to both clusters before proceeding. Otherwise contact the instructor.
+
+=== Set Up the Lab While You Work on Module 1
+
+First, you will set up a few lab environment variables.
+
+*Procedure*
+
+[start=1]
+. Add the RHACS environment variables (The "Bastion" tab in the right panel) to your ~/.bashrc file:
++
+[source,sh,subs="attributes",role=execute]
+----
+cat >> ~/.bashrc << 'EOF'
+export ROX_CENTRAL_ADDRESS="{acs_route}"
+export ACS_PORTAL_USERNAME="{acs_portal_username}"
+export ACS_PORTAL_PASSWORD="{acs_portal_password}"
+export GRPC_ENFORCE_ALPN_ENABLED=false
+EOF
+source ~/.bashrc
+----
++
+. Next, clone the repository and run the setup scripts to configure your environmen
++
+
+[IMPORTANT] 
+====
+The following script can be run in the background while woring on the first module. You DO NOT have to wait for it to finish before proceeding to module 1.
+====
++
+[source,sh,subs="attributes",role=execute]
+----
+cd ~ && git clone https://github.com/jalvarez-rh/rh1-svc-lab.git
+cd ~/rh1-svc-lab
+./lab-setup/run-all-setup.sh
+./tssc-setup/setup.sh
+./ai-setup/setup.sh
+----
++
+[IMPORTANT]
+====
+You will be asked to run the same script at the beginning of module 2, 3 and 4 to verify that everything is working as expected.
+====
+
+=== OpenShift Console Access
+
+The Red Hat Advanced Cluster Management for Kubernetes (RHACM) Console is now integrated with OpenShift Console. To access it, select *Fleet Management* from the dropdown menu on the left once you log in.
+
+Switch to the *OpenShift Console* tab in the right panel. In case you want to open it in another window it is here: {openshift_cluster_console_url}[window=blank]
+
+NOTE: ctrl + click on the URL to open URLs in a new tab.
+
+Administrator login credentials:
+
+[cols="1,1"]
 |===
-|Role |Use when...
-
-|`ocp4_workload_showroom`
-|Your lab runs on an OpenShift 4 cluster.
-The role deploys Showroom as a pod using a Helm chart, complete with content rendering, terminals, and an OpenShift `Route`.
-
-|`vm_workload_showroom`
-|Your lab runs on a VM (RHEL, Fedora, etc.).
-The role deploys Showroom with rootless Podman, Traefik for TLS, and systemd for lifecycle management.
+| *Username:* | {openshift_cluster_admin_username}
+| *Password:* | {openshift_cluster_admin_password}
 |===
 
-Both roles follow the same basic flow:
+=== RHACS Console Access
 
-. Clone your Antora content repository.
-. Inject runtime variables (credentials, hostnames, GUIDs) as AsciiDoc attributes.
-. Render the content to HTML.
-. Serve the content alongside the terminal and tab services you configured.
-. Publish the final URL back to the user.
+Your RHACS Console is also available in the right panel. In case you want to open it in another window it is here: {acs_route}[window=blank]
 
-== Key Concepts
+Administrator login credentials:
 
-Content repository::
-A Git repo containing your AsciiDoc lab instructions, structured as an Antora component.
-You typically fork https://github.com/rhpds/showroom_template_nookbag[showroom_template_nookbag] and add your own pages.
-See xref:content-repo.adoc[].
-
-AgnosticV catalog item::
-The YAML configuration in the https://github.com/rhpds/agnosticv[agnosticv] repository that ties your content repo to an environment on the Red Hat Demo Platform.
-See xref:agnosticv-config.adoc[].
-
-User data::
-A set of key-value pairs (hostnames, passwords, URLs) written by infrastructure roles during provisioning and automatically injected into your content as Antora attributes.
-See xref:user-data.adoc[].
-
-UI configuration::
-A `ui-config.yml` file in your content repo that defines the tabs, layout width, and dynamic URLs shown alongside your lab instructions.
-See xref:ui-config.adoc[].
-
-== Where to Start
-
-[cols="1,3",options="header"]
+[cols="1,1"]
 |===
-|Goal |Page
-
-|Get a Showroom lab running quickly
-|xref:quick-start.adoc[]
-
-|Create or structure a content repo
-|xref:content-repo.adoc[]
-
-|Wire up an AgnosticV catalog item
-|xref:agnosticv-config.adoc[]
-
-|Understand the full architecture
-|xref:architecture.adoc[]
-
-|Contribute to Showroom itself
-|xref:contributing.adoc[]
+| *RHACS Console Username:* | {acs_portal_username}
+| *RHACS Console Password:* | {acs_portal_password}
 |===
 
-== Related Projects
+[[whats-next]]
+== What's Next
 
-* https://github.com/agnosticd/showroom[agnosticd.showroom collection] -- this Ansible collection (you are here).
-* https://github.com/rhpds/showroom_template_nookbag[showroom_template_nookbag] -- the recommended content repo template.
-* https://github.com/rhpds/showroom-deployer[showroom-deployer] -- Helm charts that power OCP deployments.
-* https://github.com/rhpds/showroom-images[showroom-images] -- container images (content server, terminals, Antora, etc.).
-* https://github.com/rhpds/nookbag[nookbag] -- the zero-touch UI bundle.
+Click on any module above to begin. We recommend starting with Module 1 and proceeding sequentially, as each module builds upon concepts from previous modules.
+
+*Customer Value:* Upon completing this lab, you will be equipped to propose and implement sovereign cloud solutions that enable organizations to pursue digital transformation while meeting strict regulatory requirements—turning compliance from a barrier into a competitive advantage.

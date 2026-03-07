@@ -1,0 +1,20 @@
+apiVersion: monitoring.rhobs/v1
+kind: PrometheusRule
+metadata:
+  name: rhacs-health-alerts
+  namespace: rhacs-operator
+  labels:
+    app: central
+spec:
+  groups:
+    - name: secured-cluster-health
+      interval: 30s
+      rules:
+        - alert: SecuredClusterStatusNotHealthy
+          expr: rox_central_health_cluster_info{Status!="HEALTHY"}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.Cluster }} secured cluster status is {{ $labels.Status }}"
+            description: "The rox_central_health_cluster_info metric for cluster {{ $labels.Cluster }} has Status={{ $labels.Status }}, expected HEALTHY."
