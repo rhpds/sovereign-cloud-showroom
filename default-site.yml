@@ -1,6 +1,7 @@
 ---
 site:
-  title: "LB1161: Sovereign Cloud Management and Security of your Workloads"
+  title: LB6534 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
+  url: https://redhat-scholars.github.io/course-template
   start_page: modules::index.adoc
 
 content:
@@ -10,19 +11,24 @@ content:
 
 ui:
   bundle:
-    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/rh-summit-2025/ui-bundle.zip
-    # url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/patternfly-6/ui-bundle.zip
+    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/rh-one-2025/ui-bundle.zip
+    # Themes can be found at https://github.com/rhpds/rhdp_showroom_theme
+    # Summit 2025 url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/rh-summit-2025/ui-bundle.zip
     snapshot: true
   supplemental_files:
-  - path: ./content/supplemental-ui
+    - path: ./content/supplemental-ui
+    - path: ./content/lib
+    - path: .nojekyll
+    - path: ui.yml
+      contents: "static_files: [ .nojekyll ]"
+
+runtime:
+  cache_dir: ./.cache/antora
 
 antora:
   extensions:
-  - '@sntke/antora-mermaid-extension'
-
-asciidoc:
-  attributes:
-    showroom-collection-version: v1.5.5
+  - require: ./content/lib/dev-mode.js
+    enabled: true
 
 output:
   dir: ./www

@@ -38,7 +38,7 @@ The first script installs the Red Hat OpenShift AI Operator, which provides the 
 +
 [source,sh,role=execute]
 ----
-cd ~/rh1-svc-lab/ai-setup && ./setup.sh
+cd ~/svc-lab/ai-setup && ./setup.sh
 ----
 
 . Verify the installation completed successfully. You should see output indicating:

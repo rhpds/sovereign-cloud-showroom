@@ -8,6 +8,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# RH-SSO / Keycloak install targets the hub (same as lab); parallel setup may leave another context selected.
+KUBE_CONTEXT="${KUBE_CONTEXT:-local-cluster}"
+oc config use-context "$KUBE_CONTEXT" &>/dev/null || true
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -224,7 +228,7 @@ EOF
     log "Verifying subscription..."
     sleep 3
 
-    SUBSCRIPTION_STATUS=$(oc get subscription rhsso-operator -n $NAMESPACE -o jsonpath='{.status.state}' 2>/dev/null || echo "")
+    SUBSCRIPTION_STATUS=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.state}' 2>/dev/null || echo "")
     log "Subscription state: ${SUBSCRIPTION_STATUS:-unknown}"
 
     # Step 5: Wait for CSV to be created and installed
@@ -248,7 +252,7 @@ EOF
         # Show progress every 10 seconds
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             log "  Progress check (${WAIT_COUNT}s/${MAX_WAIT}s):"
-            oc get csv,subscription,installplan -n $NAMESPACE 2>/dev/null | head -5 || true
+            oc get csv,subscription.operators.coreos.com,installplan -n $NAMESPACE 2>/dev/null | head -5 || true
             log ""
         fi
         
@@ -258,8 +262,8 @@ EOF
 
     if [ "$CSV_CREATED" = false ]; then
         warning "CSV not created after ${MAX_WAIT} seconds. Current status:"
-        oc get csv,subscription,installplan -n $NAMESPACE
-        warning "CSV may still be installing. Check subscription status: oc get subscription rhsso-operator -n $NAMESPACE"
+        oc get csv,subscription.operators.coreos.com,installplan -n $NAMESPACE
+        warning "CSV may still be installing. Check subscription status: oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE"
     fi
 
     # Get the CSV name
@@ -293,7 +297,7 @@ EOF
     oc get csv -n $NAMESPACE 2>/dev/null || log "  No CSV found"
     log ""
     log "Subscription status:"
-    oc get subscription rhsso-operator -n $NAMESPACE 2>/dev/null || log "  No subscription found"
+    oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE 2>/dev/null || log "  No subscription found"
     log ""
     log "Pod status:"
     oc get pods -n $NAMESPACE 2>/dev/null || log "  No pods found"
@@ -343,7 +347,7 @@ else
         CSV_NAME=$(oc get csv -n $NAMESPACE -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     fi
     if [ -z "$CSV_NAME" ]; then
-        CSV_NAME=$(oc get subscription rhsso-operator -n $NAMESPACE -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
+        CSV_NAME=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
     fi
     
     log ""

@@ -50,36 +50,30 @@ This lab is organized into four modules:
 [[getting-started]]
 == Getting Started
 
-The Environment for this lab already provides the following links for you:
+This lab has two OpenShift clusters pre-configured. One cluster called "local-cluster" and another cluster in AWS labelled *aws-us*. 
 
-* This content on the left
-* On the right there are three tabs:
+The environment has also already been pre-configured for you with the following applications already deployed:
+
+* On the right there are five tabs:
 ** *OpenShift Console*: this is where you will spend the majority of the time configuring the various environments and applications
-** *Red Hat Advanced Cluster Security*: the console for configuring security related items
+** *Advanced Cluster Security*: the console for configuring security related items
+** *Quay*: the console for image registry and artifacts
+** *OpenShift AI*: the console for building and training AI models via Jupyter notebooks and specialized accelerators
 ** *Bastion*: command line access to the environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
 
-Before proceeding with the lab modules, you will need to configure kubectl contexts for the clusters, install a few insecure applications and the roxctl CLI tool.
+The environment set up used Ansible to deploy the applications and configure the clusters.
 
-=== Configure kubectl contexts
+=== Verify contexts and clusters
 
-This lab uses two OpenShift clusters. You'll need to set up kubectl contexts to easily switch between them.
+First, let's verify that the contexts and clusters are configured correctly.
 
 *Procedure*
 
 [start=1]
 . Switch to the *Bastion* tab, located on the right side of the screen.
-. Log in to the AWS cluster and create the `aws-us` context and rename the existing `admin` context to `local-cluster`
+. Verify that both contexts appear and that the current marker (`*`) is on *local-cluster* (the cluster you just logged into):
 +
 [source,sh,subs="attributes",role=execute]
-----
-oc config rename-context admin local-cluster
-oc login -u kubeadmin -p {aws_openshift_kubeadmin_password} {aws_openshift_api_url} --insecure-skip-tls-verify
-oc config rename-context $(oc config current-context) aws-us
-----
-
-. Verify that the changes have occured and the context is configured:
-+
-[source,sh,role=execute]
 ----
 oc config get-contexts
 ----
@@ -88,64 +82,44 @@ oc config get-contexts
 [source,sh]
 ----
 [lab-user@bastion ~]$ oc config get-contexts
-CURRENT   NAME            CLUSTER            AUTHINFO
-*         aws-us          api-ocp-...:6443   kube:admin/...:6443
-          local-cluster   ocp                admin
+CURRENT   NAME            CLUSTER         AUTHINFO              NAMESPACE
+          aws-us          aws-us          aws-us-admin
+*         local-cluster   local-cluster   local-cluster-admin
 ----
 +
 Now you are able to switch between contexts as needed.
 
-. Make sure to switch back to the local cluster context before continuing.
+. Make sure you are using the local cluster context before continuing.
 +
-[source,sh,role=execute]
+[source,sh,subs="attributes",role=execute]
 ----
-# Switch back to local cluster
 oc config use-context local-cluster
 ----
 +
 IMPORTANT: You will need to switch between contexts as needed throughout the lab. Please ensure you have access to both clusters before proceeding. Otherwise contact the instructor.
 
-=== Set Up the Lab While You Work on Module 1
+=== Configure a few insecure applications while you work on Module 1
 
-First, you will set up a few lab environment variables.
+We are going to deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
+
+The setup script configures required bastion environment variables (including RHACS client settings) before running the rest of the install. This will also deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
 
 *Procedure*
 
 [start=1]
-. Add the RHACS environment variables (The "Bastion" tab in the right panel) to your ~/.bashrc file:
-+
-[source,sh,subs="attributes",role=execute]
-----
-cat >> ~/.bashrc << 'EOF'
-export ROX_CENTRAL_ADDRESS="{acs_route}"
-export ACS_PORTAL_USERNAME="{acs_portal_username}"
-export ACS_PORTAL_PASSWORD="{acs_portal_password}"
-export GRPC_ENFORCE_ALPN_ENABLED=false
-EOF
-source ~/.bashrc
-----
-+
-. Next, clone the repository and run the setup scripts to configure your environmen
-+
-
-[IMPORTANT] 
-====
-The following script can be run in the background while woring on the first module. You DO NOT have to wait for it to finish before proceeding to module 1.
-====
-+
-[source,sh,subs="attributes",role=execute]
-----
-cd ~ && git clone https://github.com/jalvarez-rh/rh1-svc-lab.git
-cd ~/rh1-svc-lab
-./lab-setup/run-all-setup.sh
-./tssc-setup/setup.sh
-./ai-setup/setup.sh
-----
+. Copy and paste the following commands into the *Terminal tab* on the right side of the screen.
 +
 [IMPORTANT]
 ====
-You will be asked to run the same script at the beginning of module 2, 3 and 4 to verify that everything is working as expected.
+The following command can run while you work on the first module. You do not have to wait for it to finish before starting module 1. 
 ====
++
+[source,sh,subs="attributes",role=execute]
+----
+cd ~ && git clone https://github.com/mfosterrox/summit-2026-lb1161-sovereign-cloud.git svc-lab
+cd ~/svc-lab
+bash setup.sh
+----
 
 === OpenShift Console Access
 
@@ -173,6 +147,30 @@ Administrator login credentials:
 |===
 | *RHACS Console Username:* | {acs_portal_username}
 | *RHACS Console Password:* | {acs_portal_password}
+|===
+
+=== Red Hat Quay Console Access
+
+Your Red Hat Quay Console is also available in the right panel. In case you want to open it in another window it is here: {quay_console_url}[window=blank]
+
+Administrator login credentials:
+
+[cols="1,1"]
+|===
+| *Red Hat Quay Console Username:* | {quay_admin_username}
+| *Red Hat Quay Console Password:* | {quay_admin_password}
+|===
+
+=== OpenShift AI Console Access
+
+Your OpenShift AI Console is also available in the right panel. In case you want to open it in another window it is here: {rhoai_dashboard}[window=blank]
+
+Administrator login credentials:
+
+[cols="1,1"]
+|===
+| *OpenShift AI Console Username:* | {openshift_cluster_admin_username}
+| *OpenShift AI Console Password:* | {acs_portal_password}
 |===
 
 [[whats-next]]

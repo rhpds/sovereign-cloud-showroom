@@ -2,11 +2,15 @@
 
 # Master script to install and deploy Red Hat Trusted Artifact Signer (RHTAS)
 # This script orchestrates the installation of Keycloak, RHTAS Operator, and RHTAS components
-# Usage: ./setup.sh [--skip-keycloak] [--skip-operator] [--skip-deploy]
+# Usage: ./setup.sh [--skip-workstation-tools] [--skip-keycloak] [--skip-operator] [--skip-deploy]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Keycloak + RHTAS run on the hub; align with lab parallel drivers.
+KUBE_CONTEXT="${KUBE_CONTEXT:-local-cluster}"
+oc config use-context "$KUBE_CONTEXT" &>/dev/null || true
 
 # Colors
 RED='\033[0;31m'
@@ -33,12 +37,17 @@ info() {
 }
 
 # Parse command line arguments
+SKIP_WORKSTATION_TOOLS=false
 SKIP_KEYCLOAK=false
 SKIP_OPERATOR=false
 SKIP_DEPLOY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --skip-workstation-tools)
+            SKIP_WORKSTATION_TOOLS=true
+            shift
+            ;;
         --skip-keycloak)
             SKIP_KEYCLOAK=true
             shift
@@ -55,13 +64,15 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --skip-keycloak    Skip Keycloak installation"
-            echo "  --skip-operator    Skip RHTAS Operator installation"
-            echo "  --skip-deploy      Skip RHTAS component deployment"
-            echo "  --help, -h         Show this help message"
+            echo "  --skip-workstation-tools  Skip podman + cosign/gitsign on this host"
+            echo "  --skip-keycloak           Skip Keycloak installation"
+            echo "  --skip-operator           Skip RHTAS Operator installation"
+            echo "  --skip-deploy             Skip RHTAS component deployment"
+            echo "  --help, -h                Show this help message"
             echo ""
             echo "This script installs and deploys Red Hat Trusted Artifact Signer (RHTAS)"
             echo "in the following order:"
+            echo "  0. Workstation tools (podman, cosign, gitsign)"
             echo "  1. Keycloak (RHSSO) installation"
             echo "  2. RHTAS Operator installation"
             echo "  3. RHTAS component deployment"
@@ -88,10 +99,14 @@ fi
 log "✓ OpenShift CLI connected as: $(oc whoami)"
 
 # Check if scripts exist
+WORKSTATION_SCRIPT="${SCRIPT_DIR}/00-workstation-tools.sh"
 KEYCLOAK_SCRIPT="${SCRIPT_DIR}/01-keycloak.sh"
 OPERATOR_SCRIPT="${SCRIPT_DIR}/02-operator.sh"
 DEPLOY_SCRIPT="${SCRIPT_DIR}/03-deploy.sh"
 
+if [ ! -f "$WORKSTATION_SCRIPT" ]; then
+    error "Workstation tools script not found: $WORKSTATION_SCRIPT"
+fi
 if [ ! -f "$KEYCLOAK_SCRIPT" ]; then
     error "Keycloak script not found: $KEYCLOAK_SCRIPT"
 fi
@@ -104,6 +119,24 @@ fi
 
 log "✓ All required scripts found"
 log ""
+
+# Step 0: Bastion workstation tools (podman, cosign, gitsign)
+if [ "$SKIP_WORKSTATION_TOOLS" = false ]; then
+    log "========================================================="
+    log "Step 0: Workstation tools (podman, cosign, gitsign)"
+    log "========================================================="
+    log ""
+
+    if bash "$WORKSTATION_SCRIPT"; then
+        log "✓ Workstation tools completed successfully"
+    else
+        error "Workstation tools installation failed"
+    fi
+    log ""
+else
+    warning "Skipping workstation tools (--skip-workstation-tools)"
+    log ""
+fi
 
 # Step 1: Install Keycloak
 if [ "$SKIP_KEYCLOAK" = false ]; then
@@ -171,11 +204,21 @@ if [ "$SKIP_KEYCLOAK" = false ]; then
     log "Retrieving Keycloak access information..."
     KEYCLOAK_NAMESPACE="rhsso"
     KEYCLOAK_CR_NAME="rhsso-instance"
-    
+    if [ -n "${KEYCLOAK_NAMESPACE_OVERRIDE:-}" ] && oc get namespace "$KEYCLOAK_NAMESPACE_OVERRIDE" >/dev/null 2>&1; then
+        KEYCLOAK_NAMESPACE="$KEYCLOAK_NAMESPACE_OVERRIDE"
+    elif ! oc get namespace rhsso >/dev/null 2>&1 && oc get namespace keycloak >/dev/null 2>&1; then
+        KEYCLOAK_NAMESPACE="keycloak"
+        KEYCLOAK_CR_NAME="keycloak"
+    fi
+
     # Determine the correct CRD name
     KEYCLOAK_CRD="keycloaks"
     if ! oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $KEYCLOAK_NAMESPACE >/dev/null 2>&1; then
         KEYCLOAK_CRD="keycloak"
+    fi
+    if ! oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $KEYCLOAK_NAMESPACE >/dev/null 2>&1 && oc get keycloaks keycloak -n $KEYCLOAK_NAMESPACE >/dev/null 2>&1; then
+        KEYCLOAK_CR_NAME="keycloak"
+        KEYCLOAK_CRD="keycloaks"
     fi
     
     # Get Keycloak external URL
@@ -254,7 +297,9 @@ if [ "$SKIP_KEYCLOAK" = false ]; then
 fi
 
 log "To verify the installation:"
-log "  oc get pods -n rhsso"
+log "  cosign version"
+log "  podman --version"
+log "  oc get pods -n ${KEYCLOAK_NAMESPACE:-rhsso}"
 log "  oc get pods -n trusted-artifact-signer"
 log "  oc get securesigns -n trusted-artifact-signer"
 log ""
