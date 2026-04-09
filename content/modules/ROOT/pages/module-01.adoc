@@ -53,8 +53,9 @@ hcp-emea
 +
 . Verify that is on the *clusters* space for the hosted cluster namespace
 . Select *managed* for the `Cluster Set`
-. Next, select the release image *OpenShift 4.19.21* (or whatever the current 4.19 release image is).
+. Next, select the release image *OpenShift 4.21.8* (or whatever the current 4.2x.x release image is).
 . Select *Single replica* for both the *Controller availability policy* and the *Infrastructure availability policy*.
+. Under Aditional Labels enter *location=emea*
 +
 [NOTE]
 ====
@@ -120,6 +121,8 @@ By the end of this exercise, you will:
 * Navigate the RHACM Search interface to locate Virtual Machine resources across the entire fleet.
 * Provision a new Virtual Machine using the RHACM Creation Wizard.
 * Perform Day 2 operations (Stop, Start, Migrate) directly from the multi-cluster view.
+
+NOTE: You might noticed that we have already deployed a Virtual Machine for you called *rhel-webserver* we will leverage this machine in later excersises do not delete or power off as it will affect the other modules. 
 
 === Deploy Virtual Machines Using the RHACM Console
 
