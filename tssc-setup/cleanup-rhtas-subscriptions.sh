@@ -34,8 +34,9 @@ log "========================================================="
 log ""
 
 # Find all subscriptions named trusted-artifact-signer
+OLM_SUB="subscription.operators.coreos.com"
 log "Finding all RHTAS subscriptions..."
-SUBSCRIPTIONS=$(oc get subscription -A -o jsonpath='{range .items[?(@.metadata.name=="trusted-artifact-signer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
+SUBSCRIPTIONS=$(oc get "${OLM_SUB}" -A -o jsonpath='{range .items[?(@.metadata.name=="trusted-artifact-signer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
 
 if [ -z "$SUBSCRIPTIONS" ]; then
     log "No RHTAS subscriptions found"
@@ -57,7 +58,7 @@ else
         echo "$SUBSCRIPTIONS" | while read -r ns name; do
             if [ "$ns" != "openshift-operators" ]; then
                 log "Deleting subscription $name from namespace $ns..."
-                oc delete subscription $name -n $ns --ignore-not-found=true 2>/dev/null || warning "Failed to delete subscription in $ns"
+                oc delete "${OLM_SUB}" "$name" -n "$ns" --ignore-not-found=true 2>/dev/null || warning "Failed to delete subscription in $ns"
             fi
         done
         log "✓ Cleanup of incorrect subscriptions completed"
@@ -107,7 +108,7 @@ log "Cleanup Summary"
 log "========================================================="
 log ""
 log "Remaining subscriptions:"
-oc get subscription -A | grep trusted-artifact-signer || log "  None"
+oc get "${OLM_SUB}" -A | grep trusted-artifact-signer || log "  None"
 log ""
 log "Remaining CSVs:"
 oc get csv -A | grep rhtas-operator || log "  None"

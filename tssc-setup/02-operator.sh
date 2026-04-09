@@ -2,20 +2,60 @@
 
 # Script to install Red Hat Trusted Artifact Signer (RHTAS) with Red Hat SSO (Keycloak) as OIDC provider on OpenShift
 # Assumes oc is installed and user is logged in as cluster-admin
-# Assumes Red Hat SSO (Keycloak) is installed in the rhsso namespace
+# Assumes Keycloak is installed (RH SSO/rhsso, or Red Hat build of Keycloak rhbk-operator / namespace keycloak, etc.)
 # Usage: ./08-install-trusted-artifact-signer.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Keycloak / RHTAS target the hub cluster (same as lab / ai-setup). Parallel drivers may leave another context selected.
+KUBE_CONTEXT="${KUBE_CONTEXT:-local-cluster}"
+oc config use-context "$KUBE_CONTEXT" &>/dev/null || true
+
 # Step 1: Get Red Hat SSO (Keycloak) OIDC Issuer URL
 echo "Retrieving Red Hat SSO (Keycloak) OIDC Issuer URL..."
 
-# Check if Keycloak namespace exists
-if ! oc get namespace rhsso >/dev/null 2>&1; then
-    echo "Error: Namespace 'rhsso' does not exist"
-    echo "Please install Red Hat SSO (Keycloak) first by running: ./01-keycloak.sh"
+KEYCLOAK_NS=""
+if [ -n "${KEYCLOAK_NAMESPACE:-}" ] && oc get namespace "$KEYCLOAK_NAMESPACE" >/dev/null 2>&1; then
+    KEYCLOAK_NS="$KEYCLOAK_NAMESPACE"
+elif oc get namespace rhsso >/dev/null 2>&1; then
+    KEYCLOAK_NS="rhsso"
+elif oc get namespace keycloak >/dev/null 2>&1; then
+    # Red Hat build of Keycloak (rhbk-operator) — namespace is usually literally "keycloak"
+    KEYCLOAK_NS="keycloak"
+else
+    # OLM Subscription name rhbk-operator (metadata.name), any namespace
+    KEYCLOAK_NS=$(oc get subscription.operators.coreos.com -A -o jsonpath='{range .items[?(@.metadata.name=="rhbk-operator")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -1)
+    if [ -z "$KEYCLOAK_NS" ]; then
+        _routes_out=$(oc get routes -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            _r_ns="${line%% *}"
+            _r_name="${line#* }"
+            if [ "$_r_name" = "keycloak-rhsso" ]; then
+                KEYCLOAK_NS="$_r_ns"
+                break
+            fi
+        done <<< "$_routes_out"
+    fi
+    if [ -z "$KEYCLOAK_NS" ]; then
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            _r_ns="${line%% *}"
+            _r_name="${line#* }"
+            if [ "$_r_name" = "keycloak" ]; then
+                KEYCLOAK_NS="$_r_ns"
+                break
+            fi
+        done <<< "$_routes_out"
+    fi
+fi
+
+if [ -z "$KEYCLOAK_NS" ]; then
+    echo "Error: Could not determine the Keycloak namespace."
+    echo "Set KEYCLOAK_NAMESPACE (e.g. keycloak for rhbk-operator), or install Keycloak / RH SSO with ./01-keycloak.sh"
     exit 1
 fi
+echo "Using Keycloak namespace: ${KEYCLOAK_NS}"
 
 # Determine the correct CRD name (try both singular and plural)
 KEYCLOAK_CRD="keycloaks"
@@ -25,9 +65,9 @@ elif oc get crd keycloak.k8s.keycloak.org >/dev/null 2>&1 || oc get crd keycloak
     KEYCLOAK_CRD="keycloak"
 else
     # Try to determine by attempting to list resources
-    if oc get keycloaks -n rhsso >/dev/null 2>&1; then
+    if oc get keycloaks -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
         KEYCLOAK_CRD="keycloaks"
-    elif oc get keycloak -n rhsso >/dev/null 2>&1; then
+    elif oc get keycloak -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
         KEYCLOAK_CRD="keycloak"
     else
         KEYCLOAK_CRD="keycloak"
@@ -38,30 +78,51 @@ KEYCLOAK_CR_NAME="rhsso-instance"
 
 # Check if Keycloak CR exists, or if resources are running
 KEYCLOAK_CR_EXISTS=false
-if oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n rhsso >/dev/null 2>&1; then
+if oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     KEYCLOAK_CR_EXISTS=true
-elif oc get $KEYCLOAK_CRD keycloak -n rhsso >/dev/null 2>&1; then
+elif oc get $KEYCLOAK_CRD keycloak -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     KEYCLOAK_CR_NAME="keycloak"
     KEYCLOAK_CR_EXISTS=true
 else
     # Check if resources are running even without CR
-    KEYCLOAK_STS_READY=$(oc get statefulset keycloak -n rhsso -o jsonpath='{.status.readyReplicas}/{.status.replicas}' 2>/dev/null || echo "")
-    KEYCLOAK_POD_RUNNING=$(oc get pod -n rhsso -l app=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+    KEYCLOAK_STS_READY=$(oc get statefulset keycloak -n "$KEYCLOAK_NS" -o jsonpath='{.status.readyReplicas}/{.status.replicas}' 2>/dev/null || echo "")
+    KEYCLOAK_POD_RUNNING=$(oc get pod -n "$KEYCLOAK_NS" -l app=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
     
     if [ "$KEYCLOAK_STS_READY" = "1/1" ] && [ "$KEYCLOAK_POD_RUNNING" = "Running" ]; then
         echo "✓ Keycloak resources are running (CR not found, but installation appears successful)"
         KEYCLOAK_CR_EXISTS=false
+    elif oc get subscription.operators.coreos.com rhbk-operator -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+        echo "✓ Red Hat build of Keycloak (Subscription rhbk-operator) in ${KEYCLOAK_NS} — legacy RH-SSO CR/STS checks skipped"
+        KEYCLOAK_CR_EXISTS=false
     else
-        echo "Error: Keycloak custom resource not found in rhsso namespace and resources are not running"
-        echo "Please install Red Hat SSO (Keycloak) first by running: ./01-keycloak.sh"
+        echo "Error: Keycloak custom resource not found in namespace ${KEYCLOAK_NS} and resources are not running"
+        echo "Install RH SSO (./01-keycloak.sh) or Red Hat Keycloak (rhbk-operator), or set KEYCLOAK_NAMESPACE"
         exit 1
     fi
 fi
 
-KEYCLOAK_ROUTE=$(oc get route keycloak -n rhsso -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+KEYCLOAK_ROUTE=""
+for _rt in keycloak-rhsso keycloak rhbk-keycloak; do
+    KEYCLOAK_ROUTE=$(oc get route "$_rt" -n "$KEYCLOAK_NS" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+    [ -n "$KEYCLOAK_ROUTE" ] && break
+done
 if [ -z "$KEYCLOAK_ROUTE" ]; then
-    echo "Error: Could not retrieve Keycloak route from rhsso namespace"
-    echo "Keycloak may still be installing. Please wait for it to be ready, or run: ./01-keycloak.sh"
+    # RHBK / single-route installs: any route in the namespace whose name suggests Keycloak
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        _rn="${line%% *}"
+        case "$_rn" in *keycloak*|*rhbk*|*sso*) KEYCLOAK_ROUTE=$(oc get route "$_rn" -n "$KEYCLOAK_NS" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+            [ -n "$KEYCLOAK_ROUTE" ] && break
+            ;;
+        esac
+    done < <(oc get route -n "$KEYCLOAK_NS" --no-headers 2>/dev/null | awk '{print $1}')
+fi
+if [ -z "$KEYCLOAK_ROUTE" ]; then
+    KEYCLOAK_ROUTE=$(oc get routes -n "$KEYCLOAK_NS" -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null | grep -m1 '[[:alnum:]]' || true)
+fi
+if [ -z "$KEYCLOAK_ROUTE" ]; then
+    echo "Error: Could not retrieve a Keycloak route host in namespace ${KEYCLOAK_NS}"
+    echo "Keycloak may still be installing. Try: oc get route -n ${KEYCLOAK_NS}"
     exit 1
 fi
 
@@ -74,7 +135,7 @@ echo "✓ OIDC Issuer URL: $OIDC_ISSUER_URL"
 echo "Waiting for Keycloak instance to be ready..."
 KEYCLOAK_CR_NAME="rhsso-instance"
 KEYCLOAK_CRD="keycloaks"
-if ! oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n rhsso >/dev/null 2>&1; then
+if ! oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     KEYCLOAK_CRD="keycloak"
 fi
 
@@ -84,8 +145,8 @@ KEYCLOAK_READY=false
 
 while [ $WAIT_COUNT -lt $MAX_WAIT_KEYCLOAK ]; do
     # First check CR status if CR exists
-    KEYCLOAK_READY_STATUS=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n rhsso -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-    KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    KEYCLOAK_READY_STATUS=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+    KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
     
     # Check if CR status indicates ready
     if [ "$KEYCLOAK_READY_STATUS" = "true" ] || [ "$KEYCLOAK_PHASE" = "reconciled" ]; then
@@ -94,8 +155,11 @@ while [ $WAIT_COUNT -lt $MAX_WAIT_KEYCLOAK ]; do
         break
     fi
     
-    # Fallback: Check if Keycloak pods are running
-    KEYCLOAK_PODS_READY=$(oc get pods -n rhsso -l app=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+    # Fallback: Check if Keycloak pods are running (RH-SSO label or RHBK operator label)
+    KEYCLOAK_PODS_READY=$(oc get pods -n "$KEYCLOAK_NS" -l app=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+    if [ "$KEYCLOAK_PODS_READY" != "Running" ]; then
+        KEYCLOAK_PODS_READY=$(oc get pods -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+    fi
     if [ "$KEYCLOAK_PODS_READY" = "Running" ]; then
         # Check if route exists and pods are running - consider it ready
         if [ -n "$KEYCLOAK_ROUTE" ]; then
@@ -111,7 +175,7 @@ while [ $WAIT_COUNT -lt $MAX_WAIT_KEYCLOAK ]; do
     fi
     
     # Alternative: Check StatefulSet ready replicas
-    KEYCLOAK_STS_READY=$(oc get statefulset keycloak -n rhsso -o jsonpath='{.status.readyReplicas}/{.status.replicas}' 2>/dev/null || echo "")
+    KEYCLOAK_STS_READY=$(oc get statefulset keycloak -n "$KEYCLOAK_NS" -o jsonpath='{.status.readyReplicas}/{.status.replicas}' 2>/dev/null || echo "")
     if [ -n "$KEYCLOAK_STS_READY" ] && [ "$KEYCLOAK_STS_READY" != "0/0" ] && [ "$KEYCLOAK_STS_READY" != "/" ]; then
         READY_REPLICAS=$(echo "$KEYCLOAK_STS_READY" | cut -d'/' -f1)
         TOTAL_REPLICAS=$(echo "$KEYCLOAK_STS_READY" | cut -d'/' -f2)
@@ -120,6 +184,15 @@ while [ $WAIT_COUNT -lt $MAX_WAIT_KEYCLOAK ]; do
             echo "✓ Keycloak instance is ready (StatefulSet ready)"
             break
         fi
+    fi
+
+    # RHBK: Deployment with app.kubernetes.io/name=keycloak
+    _k_r=$(oc get deployment -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].status.readyReplicas}' 2>/dev/null || echo "")
+    _k_w=$(oc get deployment -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].spec.replicas}' 2>/dev/null || echo "")
+    if [ -n "$_k_r" ] && [ -n "$_k_w" ] && [ "$_k_w" != "0" ] && [ "$_k_r" = "$_k_w" ] && [ -n "$KEYCLOAK_ROUTE" ]; then
+        KEYCLOAK_READY=true
+        echo "✓ Keycloak instance is ready (RHBK Deployment + route)"
+        break
     fi
     
     sleep 5
@@ -132,8 +205,9 @@ done
 if [ "$KEYCLOAK_READY" = false ]; then
     echo "Warning: Keycloak instance did not become ready within ${MAX_WAIT_KEYCLOAK} seconds, but continuing..."
     echo "  Checking current status..."
-    oc get pods -n rhsso -l app=keycloak 2>/dev/null || echo "  No Keycloak pods found"
-    oc get route keycloak -n rhsso 2>/dev/null || echo "  No Keycloak route found"
+    oc get pods -n "$KEYCLOAK_NS" -l app=keycloak 2>/dev/null || true
+    oc get pods -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak 2>/dev/null || echo "  No Keycloak-labeled pods found"
+    oc get route keycloak-rhsso -n "$KEYCLOAK_NS" 2>/dev/null || oc get route keycloak -n "$KEYCLOAK_NS" 2>/dev/null || oc get route -n "$KEYCLOAK_NS" 2>/dev/null || echo "  No routes in namespace"
 fi
 
 # Step 3: Ensure OpenShift realm exists (using KeycloakRealm CR)
@@ -143,7 +217,7 @@ REALM="openshift"
 REALM_CR_NAME="openshift"
 
 # Check if KeycloakRealm CR exists
-if oc get keycloakrealm $REALM_CR_NAME -n rhsso >/dev/null 2>&1; then
+if oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     echo "✓ KeycloakRealm CR '${REALM_CR_NAME}' already exists"
     
     # Wait for realm to be ready/reconciled
@@ -153,8 +227,8 @@ if oc get keycloakrealm $REALM_CR_NAME -n rhsso >/dev/null 2>&1; then
     REALM_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_REALM ]; do
-        REALM_STATUS=$(oc get keycloakrealm $REALM_CR_NAME -n rhsso -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        REALM_PHASE=$(oc get keycloakrealm $REALM_CR_NAME -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        REALM_STATUS=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        REALM_PHASE=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         
         if [ "$REALM_STATUS" = "true" ] || [ "$REALM_PHASE" = "reconciled" ]; then
             REALM_READY=true
@@ -179,7 +253,7 @@ apiVersion: keycloak.org/v1alpha1
 kind: KeycloakRealm
 metadata:
   name: ${REALM_CR_NAME}
-  namespace: rhsso
+  namespace: ${KEYCLOAK_NS}
   labels:
     app: openshift
 spec:
@@ -206,8 +280,8 @@ EOF
     REALM_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_REALM ]; do
-        REALM_STATUS=$(oc get keycloakrealm $REALM_CR_NAME -n rhsso -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        REALM_PHASE=$(oc get keycloakrealm $REALM_CR_NAME -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        REALM_STATUS=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        REALM_PHASE=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         
         if [ "$REALM_STATUS" = "true" ] || [ "$REALM_PHASE" = "reconciled" ]; then
             REALM_READY=true
@@ -232,7 +306,7 @@ echo "Creating OpenShift OAuth Client..."
 CLIENT_CR_NAME_OCP="openshift"
 CLIENT_YAML_FILE="${SCRIPT_DIR}/keycloak-client-openshift.yaml"
 
-if oc get keycloakclient $CLIENT_CR_NAME_OCP -n rhsso >/dev/null 2>&1; then
+if oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME_OCP}' already exists"
     
     # Wait for client to be ready/reconciled
@@ -242,8 +316,8 @@ if oc get keycloakclient $CLIENT_CR_NAME_OCP -n rhsso >/dev/null 2>&1; then
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n rhsso -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         
         if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
             CLIENT_READY=true
@@ -282,8 +356,8 @@ else
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n rhsso -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         
         if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
             CLIENT_READY=true
@@ -311,7 +385,7 @@ KEYCLOAK_USER_EMAIL="admin@demo.redhat.com"
 KEYCLOAK_USER_PASSWORD="116608"  # Default password, can be changed
 
 # Check if KeycloakUser CR already exists
-if oc get keycloakuser $KEYCLOAK_USER_NAME -n rhsso >/dev/null 2>&1; then
+if oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME}' already exists"
     
     # Wait for user to be ready
@@ -321,7 +395,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME -n rhsso >/dev/null 2>&1; then
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [ "$USER_PHASE" = "reconciled" ]; then
             USER_READY=true
             echo "✓ User is ready"
@@ -348,7 +422,7 @@ apiVersion: keycloak.org/v1alpha1
 kind: KeycloakUser
 metadata:
   name: ${KEYCLOAK_USER_NAME}
-  namespace: rhsso
+  namespace: ${KEYCLOAK_NS}
   labels:
     app: openshift
 spec:
@@ -378,7 +452,7 @@ EOF
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [ "$USER_PHASE" = "reconciled" ]; then
             USER_READY=true
             echo "✓ User is ready"
@@ -405,7 +479,7 @@ KEYCLOAK_USER_EMAIL_JDOE="jdoe@redhat.com"
 KEYCLOAK_USER_PASSWORD_JDOE="secure"
 
 # Check if KeycloakUser CR already exists
-if oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n rhsso >/dev/null 2>&1; then
+if oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_JDOE}' already exists"
     
     # Wait for user to be ready
@@ -415,7 +489,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n rhsso >/dev/null 2>&1; then
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [ "$USER_PHASE" = "reconciled" ]; then
             USER_READY=true
             echo "✓ User is ready"
@@ -439,7 +513,7 @@ apiVersion: keycloak.org/v1alpha1
 kind: KeycloakUser
 metadata:
   name: ${KEYCLOAK_USER_NAME_JDOE}
-  namespace: rhsso
+  namespace: ${KEYCLOAK_NS}
   labels:
     app: trusted-artifact-signer
 spec:
@@ -471,7 +545,7 @@ EOF
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [ "$USER_PHASE" = "reconciled" ]; then
             USER_READY=true
             echo "✓ User is ready"
@@ -496,7 +570,7 @@ KEYCLOAK_USER_NAME_USER1="user1"
 USER_YAML_FILE="${SCRIPT_DIR}/keycloak-user-user1.yaml"
 
 # Check if KeycloakUser CR already exists
-if oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n rhsso >/dev/null 2>&1; then
+if oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_USER1}' already exists"
     
     # Wait for user to be ready
@@ -506,7 +580,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n rhsso >/dev/null 2>&1; then
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [ "$USER_PHASE" = "reconciled" ]; then
             USER_READY=true
             echo "✓ User is ready"
@@ -544,7 +618,7 @@ else
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [ "$USER_PHASE" = "reconciled" ]; then
             USER_READY=true
             echo "✓ User is ready"
@@ -569,7 +643,7 @@ OIDC_CLIENT_ID="trusted-artifact-signer"
 CLIENT_CR_NAME="trusted-artifact-signer"
 
 # Check if KeycloakClient CR already exists
-if oc get keycloakclient $CLIENT_CR_NAME -n rhsso >/dev/null 2>&1; then
+if oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME}' already exists"
     
     # Wait for client to be ready/reconciled
@@ -579,8 +653,8 @@ if oc get keycloakclient $CLIENT_CR_NAME -n rhsso >/dev/null 2>&1; then
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME -n rhsso -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         
         if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
             CLIENT_READY=true
@@ -605,7 +679,7 @@ apiVersion: keycloak.org/v1alpha1
 kind: KeycloakClient
 metadata:
   name: ${CLIENT_CR_NAME}
-  namespace: rhsso
+  namespace: ${KEYCLOAK_NS}
   labels:
     app: keycloak
 spec:
@@ -668,8 +742,8 @@ EOF
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME -n rhsso -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME -n rhsso -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         
         if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
             CLIENT_READY=true
@@ -690,9 +764,9 @@ fi
 
 # Check if client secret was created
 CLIENT_SECRET_NAME="keycloak-client-secret-${CLIENT_CR_NAME}"
-if oc get secret $CLIENT_SECRET_NAME -n rhsso >/dev/null 2>&1; then
+if oc get secret $CLIENT_SECRET_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     echo "✓ Client secret '${CLIENT_SECRET_NAME}' exists"
-    CLIENT_ID_FROM_SECRET=$(oc get secret $CLIENT_SECRET_NAME -n rhsso -o jsonpath='{.data.CLIENT_ID}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+    CLIENT_ID_FROM_SECRET=$(oc get secret $CLIENT_SECRET_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.data.CLIENT_ID}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
     if [ -n "$CLIENT_ID_FROM_SECRET" ]; then
         echo "  Client ID from secret: ${CLIENT_ID_FROM_SECRET}"
     fi
@@ -706,20 +780,23 @@ echo "Installing RHTAS Operator..."
 # Ensure we're targeting the correct namespace
 OPERATOR_NAMESPACE="openshift-operators"
 
+# OLM Subscription (use full API; short name "subscription" resolves to ACM on many clusters)
+OLM_SUB="subscription.operators.coreos.com"
+
 # Check if subscription already exists in the correct namespace
-if oc get subscription trusted-artifact-signer -n $OPERATOR_NAMESPACE >/dev/null 2>&1; then
+if oc get "${OLM_SUB}" trusted-artifact-signer -n $OPERATOR_NAMESPACE >/dev/null 2>&1; then
     echo "RHTAS Operator subscription 'trusted-artifact-signer' already exists in $OPERATOR_NAMESPACE, skipping creation"
 else
     # Clean up any subscriptions in wrong namespaces (optional, but helpful)
     echo "Checking for subscriptions in incorrect namespaces..."
-    WRONG_SUBS=$(oc get subscription -A -o jsonpath='{range .items[?(@.metadata.name=="trusted-artifact-signer" && @.metadata.namespace!="openshift-operators")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
+    WRONG_SUBS=$(oc get "${OLM_SUB}" -A -o jsonpath='{range .items[?(@.metadata.name=="trusted-artifact-signer" && @.metadata.namespace!="openshift-operators")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
     if [ -n "$WRONG_SUBS" ]; then
         echo "Warning: Found subscriptions in incorrect namespaces:"
         echo "$WRONG_SUBS" | while read -r ns name; do
             echo "  - $ns/$name"
         done
         echo "  These should only exist in $OPERATOR_NAMESPACE namespace"
-        echo "  To clean them up, run: oc delete subscription trusted-artifact-signer -n <namespace>"
+        echo "  To clean them up, run: oc delete ${OLM_SUB} trusted-artifact-signer -n <namespace>"
     fi
     
     cat <<EOF | oc apply -f -
@@ -739,43 +816,69 @@ EOF
     echo "✓ RHTAS Operator subscription created in $OPERATOR_NAMESPACE namespace"
 fi
 
+# Some clusters require InstallPlan approval even when spec.installPlanApproval is Automatic (policy / OLM).
+approve_rhtas_installplan_if_needed() {
+    local ip approved
+    ip=$(oc get "${OLM_SUB}" trusted-artifact-signer -n "$OPERATOR_NAMESPACE" -o jsonpath='{.status.installPlanRef.name}' 2>/dev/null || echo "")
+    [ -z "$ip" ] && return 0
+    approved=$(oc get installplan.operators.coreos.com "$ip" -n "$OPERATOR_NAMESPACE" -o jsonpath='{.spec.approved}' 2>/dev/null || echo "false")
+    if [ "$approved" != "true" ]; then
+        echo "  Approving InstallPlan '$ip' (pending approval — CSV will not exist until this is done)..."
+        oc patch installplan.operators.coreos.com "$ip" -n "$OPERATOR_NAMESPACE" --type merge -p '{"spec":{"approved":true}}' &>/dev/null || \
+            oc patch installplan "$ip" -n "$OPERATOR_NAMESPACE" --type merge -p '{"spec":{"approved":true}}' &>/dev/null || true
+    fi
+}
+
 # Wait for RHTAS Operator to be ready
 echo "Waiting for RHTAS Operator to be ready..."
 
 # First, wait for CSV to appear
 echo "Waiting for CSV to be created..."
 CSV_NAME=""
-MAX_WAIT_CSV=120
+MAX_WAIT_CSV=300
 WAIT_COUNT=0
 
+approve_rhtas_installplan_if_needed
+
 while [ $WAIT_COUNT -lt $MAX_WAIT_CSV ]; do
+    approve_rhtas_installplan_if_needed
+
     # Try multiple methods to find the CSV
     CSV_NAME=$(oc get csv -n openshift-operators -o jsonpath='{.items[?(@.spec.displayName=="Trusted Artifact Signer Operator")].metadata.name}' 2>/dev/null || echo "")
     if [ -z "$CSV_NAME" ]; then
-        CSV_NAME=$(oc get csv -n openshift-operators -o name 2>/dev/null | grep -i "trusted-artifact-signer\|rhtas" | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || echo "")
+        CSV_NAME=$(oc get csv -n openshift-operators -o name 2>/dev/null | grep -iE "trusted-artifact-signer|rhtas-operator" | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || echo "")
     fi
     if [ -z "$CSV_NAME" ]; then
         CSV_NAME=$(oc get csv -n openshift-operators -l operators.coreos.com/trusted-artifact-signer.openshift-operators -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     fi
-    
+    # Subscription already resolved target CSV (often before the CSV object exists)
+    if [ -z "$CSV_NAME" ]; then
+        _csv_from_sub=$(oc get "${OLM_SUB}" trusted-artifact-signer -n "$OPERATOR_NAMESPACE" -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
+        if [ -n "$_csv_from_sub" ] && oc get csv "$_csv_from_sub" -n openshift-operators &>/dev/null; then
+            CSV_NAME="$_csv_from_sub"
+        fi
+    fi
+
     if [ -n "$CSV_NAME" ]; then
         echo "✓ Found CSV: $CSV_NAME"
         break
     fi
-    
+
     sleep 5
     WAIT_COUNT=$((WAIT_COUNT + 5))
     if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
         echo "  Still waiting for CSV to appear... (${WAIT_COUNT}s/${MAX_WAIT_CSV}s)"
         echo "    Checking available CSVs..."
-        oc get csv -n openshift-operators -o name 2>/dev/null | head -3 || echo "    No CSVs found yet"
+        oc get csv -n openshift-operators -o name 2>/dev/null | grep -i rhtas | head -3 || oc get csv -n openshift-operators -o name 2>/dev/null | head -3 || echo "    No CSVs found yet"
     fi
 done
 
 if [ -z "$CSV_NAME" ]; then
     echo "Error: Could not find RHTAS Operator CSV after ${MAX_WAIT_CSV} seconds"
-    echo "Please check the subscription status:"
-    oc get subscription trusted-artifact-signer -n openshift-operators -o yaml
+    echo "If subscription shows InstallPlanPending / RequiresApproval, the script should approve the InstallPlan automatically; check RBAC (cluster-admin) and:"
+    echo "  oc get installplan -n openshift-operators"
+    echo "  oc describe subscription.operators.coreos.com trusted-artifact-signer -n openshift-operators"
+    oc get "${OLM_SUB}" trusted-artifact-signer -n openshift-operators -o yaml
     exit 1
 fi
 

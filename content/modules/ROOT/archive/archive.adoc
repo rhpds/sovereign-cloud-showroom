@@ -1,0 +1,24 @@
+== Label an Existing Cluster
+
+While we wait for the cluster to deploy, lets tag the existing *aws-us* and the "On-Prem" cluster with a location tag, we will leverage these tags once we deploy an application.
+
+[start=1]
+. On the *Fleet Managment* cluster view, locate the *aws-us* and the local-cluster cluster.
+. Locate the elipses next to the *aws-us* creation date and select *Edit Labels* 
+
+image::04-cluster-label.png[link=self, window=blank, width=100%, Edit Labels]
+
+[start=3]
+
+. Enter *location=us* and click *Save*
+
+image::05-cluster-label2.png[link=self, window=blank, width=100%, Edit Labels Save]
+
+[start=3]
+
+. Do the same with the *local-cluster*. Enter *location=on-premise* and click *Save*
+
+[TIP]
+====
+Cluster Labels serve as the metadata targeting system in RHACM, allowing you to categorize environments by attributes like region, environment, or sovereignty level. By using these labels within Placement resources, you can automate the dynamic distribution of workloads, security policies, and configurations across your entire fleet based on specific business or regulatory requirements.
+====

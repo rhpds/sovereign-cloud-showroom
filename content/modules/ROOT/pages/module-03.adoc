@@ -18,9 +18,7 @@ First, we need to set up the applications for this module.
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cd ~/rh1-svc-lab/tssc-setup && ./setup.sh
-curl -fsSL https://raw.githubusercontent.com/redhat-tssc-tmm/security-roadshow/main/cosign_gitsign_installer.sh | bash
-sudo dnf -y install podman
+cd ~/svc-lab/tssc-setup && ./setup.sh
 cosign version
 ----
 +

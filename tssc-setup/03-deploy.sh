@@ -9,6 +9,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+KUBE_CONTEXT="${KUBE_CONTEXT:-local-cluster}"
+oc config use-context "$KUBE_CONTEXT" &>/dev/null || true
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -105,14 +108,30 @@ else
     fi
 fi
 
-# Check if Keycloak is available
+# Check if Keycloak is available (RH-SSO / rhsso, Red Hat build of Keycloak / keycloak, or override)
 log "Checking if Keycloak is available..."
-KEYCLOAK_NAMESPACE="rhsso"
-if ! oc get namespace $KEYCLOAK_NAMESPACE >/dev/null 2>&1; then
-    error "Keycloak namespace '$KEYCLOAK_NAMESPACE' not found. Please install Keycloak first."
+KEYCLOAK_NAMESPACE=""
+if [ -n "${KEYCLOAK_NAMESPACE_OVERRIDE:-}" ] && oc get namespace "$KEYCLOAK_NAMESPACE_OVERRIDE" >/dev/null 2>&1; then
+    KEYCLOAK_NAMESPACE="$KEYCLOAK_NAMESPACE_OVERRIDE"
+elif oc get namespace rhsso >/dev/null 2>&1; then
+    KEYCLOAK_NAMESPACE="rhsso"
+elif oc get namespace keycloak >/dev/null 2>&1; then
+    KEYCLOAK_NAMESPACE="keycloak"
+else
+    KEYCLOAK_NAMESPACE=$(oc get subscription.operators.coreos.com -A -o jsonpath='{range .items[?(@.metadata.name=="rhbk-operator")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -1)
+fi
+if [ -z "$KEYCLOAK_NAMESPACE" ]; then
+    error "Keycloak namespace not found (expected rhsso, keycloak, or rhbk-operator subscription). Install Keycloak or set KEYCLOAK_NAMESPACE_OVERRIDE."
 fi
 
-KEYCLOAK_ROUTE=$(oc get route keycloak -n $KEYCLOAK_NAMESPACE -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+KEYCLOAK_ROUTE=""
+for _rt in keycloak keycloak-rhsso rhbk-keycloak; do
+    KEYCLOAK_ROUTE=$(oc get route "$_rt" -n "$KEYCLOAK_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+    [ -n "$KEYCLOAK_ROUTE" ] && break
+done
+if [ -z "$KEYCLOAK_ROUTE" ]; then
+    KEYCLOAK_ROUTE=$(oc get routes -n "$KEYCLOAK_NAMESPACE" -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null | grep -m1 '[[:alnum:]]' || true)
+fi
 if [ -z "$KEYCLOAK_ROUTE" ]; then
     error "Keycloak route not found. Please ensure Keycloak is installed and running."
 fi

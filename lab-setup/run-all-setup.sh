@@ -1,6 +1,7 @@
 #!/bin/bash
-# Master script to execute all setup scripts in order
-# This script runs all numbered setup scripts sequentially
+# Master script: lab scripts in order (01 → 07), then workstation tools (podman, cosign, gitsign).
+# The cosign/gitsign installer needs the trusted-artifact-signer client-server Route; it runs last so
+# parallel tssc-setup (see repo setup.sh) can deploy RHTAS first. 01: roxctl · … · 07: Perses · final: tools.
 
 set -euo pipefail
 
@@ -27,17 +28,15 @@ warning() {
     echo -e "${YELLOW}[SETUP-MASTER] WARNING:${NC} $1"
 }
 
-# Array of scripts to execute in order
+# Numbered scripts (03 and 05 manage contexts internally where needed; 01–02, 04, and 07 pre-switch to local-cluster)
 SCRIPTS=(
-    "00-install-roxctl.sh"
-    "01-central-configuration.sh"
-    "02-compliance-operator-install.sh"
-    "03-deploy-applications.sh"
-    # "04-configure-rhacs-settings.sh"
-    # "05-setup-perses-monitoring.sh"
-    # "06-scs-second-cluster.sh"
-    # "07-compliance-operator-second-cluster.sh"
-    "08-deploy-applications-us.sh"
+    "01-install-roxctl.sh"
+    "02-central-configuration.sh"
+    "03-compliance-operator-install.sh"
+    "04-secured-cluster-aws-us.sh"
+    "05-deploy-applications.sh"
+    "06-configure-rhacs-settings.sh"
+    "07-setup-perses-monitoring.sh"
 )
 
 log "========================================================="
@@ -53,6 +52,10 @@ for script in "${SCRIPTS[@]}"; do
         MISSING_SCRIPTS+=("$script")
     fi
 done
+WORKSTATION_SCRIPT="00-workstation-tools.sh"
+if [ ! -f "$SCRIPT_DIR/$WORKSTATION_SCRIPT" ]; then
+    MISSING_SCRIPTS+=("$WORKSTATION_SCRIPT")
+fi
 
 if [ ${#MISSING_SCRIPTS[@]} -gt 0 ]; then
     error "The following required scripts are missing: ${MISSING_SCRIPTS[*]}"
@@ -77,9 +80,8 @@ for idx in "${!SCRIPTS[@]}"; do
     log "Executing script $CURRENT/$TOTAL: $script"
     log "========================================================="
     
-    # Scripts 00-04 should run in local-cluster context
-    # Script 08 should run in aws-us context (handled by script itself)
-    if [[ "$script" =~ ^0[0-4]- ]]; then
+    # 01–02, 04 (Central lives only on local-cluster), and 07 expect local-cluster first
+    if [[ "$script" =~ ^0[1-2]-|^04-|^07- ]]; then
         log "Ensuring local-cluster context for script $script..."
         if oc config use-context local-cluster >/dev/null 2>&1; then
             log "✓ Switched to local-cluster context"
@@ -103,6 +105,26 @@ for idx in "${!SCRIPTS[@]}"; do
     log ""
 done
 
+# Podman + cosign + gitsign (same installer as tssc-setup; repo setup.sh passes --skip-workstation-tools to tssc).
+# The upstream installer downloads CLIs from the RHTAS client-server Route; run after 01–07 so parallel
+# tssc-setup is more likely to have deployed trusted-artifact-signer first.
+log "========================================================="
+log "Final step: workstation tools ($WORKSTATION_SCRIPT)"
+log "========================================================="
+log "Ensuring local-cluster context for workstation tools..."
+if oc config use-context local-cluster >/dev/null 2>&1; then
+    log "✓ Switched to local-cluster context"
+else
+    warning "Failed to switch to local-cluster context. Cosign/gitsign install may fail if routes are not visible."
+fi
+chmod +x "$SCRIPT_DIR/$WORKSTATION_SCRIPT"
+if bash "$SCRIPT_DIR/$WORKSTATION_SCRIPT"; then
+    log "✓ Successfully completed: $WORKSTATION_SCRIPT"
+else
+    error "✗ Final step failed: $WORKSTATION_SCRIPT"
+fi
+log ""
+
 # Restore original context if it was set
 if [ -n "$ORIGINAL_CONTEXT" ]; then
     log "Restoring original context: $ORIGINAL_CONTEXT"
@@ -113,7 +135,8 @@ fi
 log "========================================================="
 log "Setup Summary"
 log "========================================================="
-log "Total scripts executed: $TOTAL"
+log "Numbered lab scripts executed: $TOTAL"
+log "Workstation tools step: $WORKSTATION_SCRIPT"
 
 if [ ${#FAILED_SCRIPTS[@]} -eq 0 ]; then
     log "✓ All scripts completed successfully!"
@@ -124,6 +147,8 @@ if [ ${#FAILED_SCRIPTS[@]} -eq 0 ]; then
     log "========================================================="
     log "RHACS Access Information"
     log "========================================================="
+
+    oc config use-context local-cluster >/dev/null 2>&1 || true
     
     # Detect RHACS namespace - check stackrox first (newer installations), then rhacs-operator (older installations)
     RHACS_NAMESPACE=""
