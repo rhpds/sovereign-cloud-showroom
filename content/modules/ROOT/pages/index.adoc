@@ -50,7 +50,7 @@ This lab is organized into four modules:
 [[getting-started]]
 == Getting Started
 
-This lab has two OpenShift clusters pre-configured. One cluster called "local-cluster" and another cluster in AWS labelled *aws-us*. 
+This lab has two OpenShift clusters pre-configured. One cluster called *local-cluster* and another cluster in AWS labelled *aws-us*. 
 
 The environment has also already been pre-configured for you with the following applications already deployed:
 
@@ -59,9 +59,7 @@ The environment has also already been pre-configured for you with the following 
 ** *Advanced Cluster Security*: the console for configuring security related items
 ** *Quay*: the console for image registry and artifacts
 ** *OpenShift AI*: the console for building and training AI models via Jupyter notebooks and specialized accelerators
-** *Bastion*: command line access to the environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
-
-The environment set up used Ansible to deploy the applications and configure the clusters.
+** *Terminal*: command line access to the OpenShift environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
 
 === Verify contexts and clusters
 
