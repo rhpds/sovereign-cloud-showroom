@@ -54,7 +54,7 @@ image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
-[source,yaml]
+[source,bash,subs="+macros,+attributes",role=execute]
 ----
 apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
@@ -180,7 +180,7 @@ image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
-[source,yaml]
+[source,bash,subs="+macros,+attributes",role=execute]
 ----
 apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
@@ -293,7 +293,7 @@ image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
-[source,yaml]
+[source,bash,subs="+macros,+attributes",role=execute]
 ----
 apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
@@ -420,7 +420,7 @@ image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
-[source,yaml]
+[source,bash,subs="+macros,+attributes",role=execute]
 ----
 apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
@@ -529,7 +529,8 @@ Policy Sets allow you to group related policies together for cleaner governance 
 
 . Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
 +
-[source,yaml]
+
+[source,bash,subs="+macros,+attributes",role=execute]
 ----
 apiVersion: policy.open-cluster-management.io/v1beta1
 kind: PolicySet
@@ -553,7 +554,6 @@ spec:
     - policy-us-namespace-compliance
     - policy-us-audit-logging
 ----
-
 image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
 
 . Verify that the YAML was added properly and there are no errors.
