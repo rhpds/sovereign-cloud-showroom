@@ -6,19 +6,21 @@
 
 == Module Goals
 
-The goal of this lab is to learn about the features from the Trusted Software Supply Chain suite of products from Red Hat. In sovereign cloud environments, maintaining control over your software supply chain is essential. This module demonstrates how cryptographic signing, verification, and Software Bills of Materials (SBOMs) enable you to maintain sovereignty over your software artifacts and dependencies.
+*Own your software supply chain. *
+
+The goal of this module is to show you how to ingest, build, sign, attest and secure your software supply chain. You'll learn how to take control of your software supply chain in sovereign cloud environments by working hands-on with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain full sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
 
 [[setup]]
 
-== Setup
+== Installation and Setup
 
 First, we need to set up the applications for this module.
 
-. Switch to the *Bastion* tab on the right and run the following command to ensure the environment is up to date and study up on the software supply chain concepts while it's running.
+.Procedure
+. Switch to the *Terminal* tab on the right and run the following command to check if cosign is already installed.
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cd ~/svc-lab/tssc-setup && ./setup.sh
 cosign version
 ----
 +
@@ -52,7 +54,12 @@ parsed config:
 
 ----
 +
-IMPORTANT: If you have issues make sure to ask for help from a proctor.
+IMPORTANT: If cosign is not installed, please run the following command to install it in the Terminal tab on the right.
++
+[source,sh,subs="attributes",role=execute]
+----
+cd ~/svc-lab/tssc-setup && ./setup.sh
+----
 
 [[trusted-artifact-signer]]
 
@@ -176,20 +183,6 @@ export REKOR_REKOR_SERVER=$COSIGN_REKOR_URL
 # to verify URL endpoints have been set
 env | grep URL
 ----
-+
-[.console-output]
-[source,bash,subs="+macros,+attributes"]
-----
-TUF_URL=https://tuf-trusted-artifact-signer.apps.cluster-m2mgb.dyn.redhatworkshops.io
-OIDC_ISSUER_URL=https://keycloak-rhsso.apps.cluster-m2mgb.dyn.redhatworkshops.io/auth/realms/openshift
-QUAY_URL=quay.apps.cluster-m2mgb.dyn.redhatworkshops.io
-COSIGN_FULCIO_URL=https://fulcio-server-trusted-artifact-signer.apps.cluster-m2mgb.dyn.redhatworkshops.io
-SIGSTORE_REKOR_URL=https://rekor-server-trusted-artifact-signer.apps.cluster-m2mgb.dyn.redhatworkshops.io
-SIGSTORE_FULCIO_URL=https://fulcio-server-trusted-artifact-signer.apps.cluster-m2mgb.dyn.redhatworkshops.io
-COSIGN_REKOR_URL=https://rekor-server-trusted-artifact-signer.apps.cluster-m2mgb.dyn.redhatworkshops.io
-----
-+
-NOTE: The reason we define multiple variables with the same values is due to the long history of the upstream Sigstore project. Some tools (like `cosign` and `gitsign`) use different environment variables for the same purpose. For various reasons, including open source principles and compatibility, we are not creating a specialized Red Hat version with simplified environment parameters. These variables will be maintained in both the upstream project and the Red Hat enterprise-ready version.
 
 . As the last step, initialize `cosign` so it knows who to talk to. Run the following command in the terminal
 +
