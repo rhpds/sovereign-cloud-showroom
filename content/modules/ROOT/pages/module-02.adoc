@@ -503,7 +503,6 @@ subjects:
     kind: Policy
     apiGroup: policy.open-cluster-management.io
 ----
-
 image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
 
 . Verify that the YAML was added properly and there are no errors.
