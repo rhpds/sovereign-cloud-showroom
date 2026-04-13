@@ -36,6 +36,34 @@ info() {
     echo -e "${BLUE}[RHTAS-DEPLOY]${NC} $1"
 }
 
+# Securesign / stack namespace (some clusters also run the controller manager here instead of only openshift-operators)
+RHTAS_TARGET_NAMESPACE="${RHTAS_TARGET_NAMESPACE:-trusted-artifact-signer}"
+
+# Count RHTAS *operator controller* pods: OLM default label in openshift-operators or same label in the target namespace.
+rhtas_operator_labeled_pods() {
+    local ns=$1
+    oc get pods -n "$ns" -l name=trusted-artifact-signer-operator --no-headers 2>/dev/null | wc -l | tr -d ' '
+}
+
+# Fallback when label does not match (e.g. controller or client-server components in the stack namespace)
+rhtas_controller_pods_fallback() {
+    local ns=$1
+    oc get pods -n "$ns" --no-headers 2>/dev/null | grep -iE 'trusted-artifact-signer.*(operator|controller)|rhtas.*(operator|controller)|controller-manager|^cli-server-' | wc -l | tr -d ' '
+}
+
+# First namespace (among openshift-operators and target ns) that has any operator/controller signal; prints ns name or empty
+rhtas_operator_namespace_detect() {
+    local ns c
+    for ns in openshift-operators "$RHTAS_TARGET_NAMESPACE"; do
+        oc get namespace "$ns" &>/dev/null || continue
+        c=$(rhtas_operator_labeled_pods "$ns")
+        [ "${c:-0}" -gt 0 ] && echo "$ns" && return 0
+        c=$(rhtas_controller_pods_fallback "$ns")
+        [ "${c:-0}" -gt 0 ] && echo "$ns" && return 0
+    done
+    echo ""
+}
+
 log "========================================================="
 log "Red Hat Trusted Artifact Signer Component Deployment"
 log "========================================================="
@@ -94,17 +122,17 @@ if [ -n "$MISSING_CRDS" ]; then
 fi
 log "✓ All required CRDs are installed"
 
-# Check if operator pods are running
-OPERATOR_PODS=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l || echo "0")
-if [ "$OPERATOR_PODS" -eq 0 ]; then
-    warning "No RHTAS operator pods found running in openshift-operators namespace"
+# Check if operator/controller pods are running (OLM uses openshift-operators; some installs also show controllers in the stack namespace)
+OPERATOR_NS=$(rhtas_operator_namespace_detect)
+if [ -z "$OPERATOR_NS" ]; then
+    warning "No RHTAS operator/controller pods found in openshift-operators or ${RHTAS_TARGET_NAMESPACE} (label name=trusted-artifact-signer-operator, or controller name pattern)."
     warning "The operator may not be functioning correctly. Continuing anyway..."
 else
-    READY_PODS=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator --field-selector=status.phase=Running -o jsonpath='{.items[?(@.status.containerStatuses[0].ready==true)].metadata.name}' 2>/dev/null | wc -w || echo "0")
-    if [ "$READY_PODS" -gt 0 ]; then
-        log "✓ RHTAS Operator pods are running and ready ($READY_PODS pod(s))"
+    READY_PODS=$(oc get pods -n "$OPERATOR_NS" -l name=trusted-artifact-signer-operator --field-selector=status.phase=Running -o jsonpath='{.items[?(@.status.containerStatuses[0].ready==true)].metadata.name}' 2>/dev/null | wc -w | tr -d ' ')
+    if [ "${READY_PODS:-0}" -gt 0 ]; then
+        log "✓ RHTAS operator pods are running and ready in namespace ${OPERATOR_NS} (${READY_PODS} pod(s))"
     else
-        warning "RHTAS Operator pods exist but are not ready. Continuing anyway..."
+        log "✓ RHTAS operator/controller activity detected in namespace ${OPERATOR_NS}"
     fi
 fi
 
@@ -152,7 +180,7 @@ log "Using API version: ${RHTAS_API_VERSION}"
 log ""
 
 # Step 1: Create namespace
-RHTAS_NAMESPACE="trusted-artifact-signer"
+RHTAS_NAMESPACE="${RHTAS_TARGET_NAMESPACE}"
 log "Step 1: Creating namespace '${RHTAS_NAMESPACE}'..."
 
 if oc get namespace $RHTAS_NAMESPACE >/dev/null 2>&1; then
@@ -348,26 +376,28 @@ fi
 log ""
 log "Checking operator status and CR reconciliation..."
 
-# Check if operator pods are running
-OPERATOR_PODS=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator --no-headers 2>/dev/null | wc -l || echo "0")
-if [ "$OPERATOR_PODS" -eq 0 ]; then
-    warning "No RHTAS operator pods found in openshift-operators namespace"
-    log "Checking for operator in other namespaces..."
-    OPERATOR_PODS_ALL=$(oc get pods -A -l name=trusted-artifact-signer-operator --no-headers 2>/dev/null | wc -l || echo "0")
-    if [ "$OPERATOR_PODS_ALL" -eq 0 ]; then
-        warning "RHTAS operator pods not found in any namespace"
-        log "Please verify the operator is installed: oc get csv -n openshift-operators | grep trusted-artifact-signer"
+# Operator/controller pods: prefer openshift-operators, then trusted-artifact-signer (same checks as prerequisites above)
+OPERATOR_DIAG_NS=$(rhtas_operator_namespace_detect)
+if [ -z "$OPERATOR_DIAG_NS" ]; then
+    warning "No RHTAS operator/controller pods found in openshift-operators or ${RHTAS_TARGET_NAMESPACE}"
+    log "Checking cluster-wide for label name=trusted-artifact-signer-operator..."
+    OPERATOR_PODS_ALL=$(oc get pods -A -l name=trusted-artifact-signer-operator --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${OPERATOR_PODS_ALL:-0}" -eq 0 ]; then
+        warning "Still not found. Verify CSV: oc get csv -n openshift-operators | grep -i trusted-artifact-signer"
+        log "Or workloads in stack namespace: oc get pods -n ${RHTAS_TARGET_NAMESPACE}"
     else
-        log "Found operator pods in other namespaces"
+        log "Found operator pods elsewhere in the cluster (${OPERATOR_PODS_ALL} pod(s) with expected label)"
     fi
 else
-    OPERATOR_POD_STATUS=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
-    OPERATOR_POD_READY=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "")
+    OPERATOR_POD_STATUS=$(oc get pods -n "$OPERATOR_DIAG_NS" -l name=trusted-artifact-signer-operator -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+    OPERATOR_POD_READY=$(oc get pods -n "$OPERATOR_DIAG_NS" -l name=trusted-artifact-signer-operator -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "")
     if [ "$OPERATOR_POD_STATUS" = "Running" ] && [ "$OPERATOR_POD_READY" = "true" ]; then
-        log "✓ Operator pod is running and ready"
+        log "✓ Operator pod is running and ready (namespace ${OPERATOR_DIAG_NS})"
+    elif [ -n "$OPERATOR_POD_STATUS" ] || [ -n "$OPERATOR_POD_READY" ]; then
+        warning "Operator pod status in ${OPERATOR_DIAG_NS}: phase=${OPERATOR_POD_STATUS:-Unknown}, ready=${OPERATOR_POD_READY:-Unknown}"
+        log "Check operator logs: oc logs -n ${OPERATOR_DIAG_NS} -l name=trusted-artifact-signer-operator --tail=50"
     else
-        warning "Operator pod status: ${OPERATOR_POD_STATUS:-Unknown}, Ready: ${OPERATOR_POD_READY:-Unknown}"
-        log "Check operator logs: oc logs -n openshift-operators -l name=trusted-artifact-signer-operator --tail=50"
+        log "✓ RHTAS controller/operator activity in namespace ${OPERATOR_DIAG_NS} (see also: oc get pods -n ${OPERATOR_DIAG_NS})"
     fi
 fi
 
