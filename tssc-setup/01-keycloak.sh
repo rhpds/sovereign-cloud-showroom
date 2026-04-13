@@ -373,9 +373,30 @@ log "========================================================="
 log ""
 
 KEYCLOAK_CR_NAME="rhsso-instance"
+# legacy = keycloak.org/v1alpha1 (RH-SSO operator); rhbk = k8s.keycloak.org/v2 (Red Hat build of Keycloak operator)
+KEYCLOAK_API="legacy"
 
-# Determine the correct resource name (try both singular and plural)
+# Red Hat build of Keycloak: Keycloak CR is k8s.keycloak.org (v2alpha1), usually namespace "keycloak".
+# Legacy keycloak.org/v1alpha1 is not installed on those clusters — use existing CR only.
+if oc get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1; then
+    for kns in keycloak rhsso; do
+        oc get namespace "$kns" >/dev/null 2>&1 || continue
+        kcname=$(oc get keycloaks -n "$kns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        if [ -n "$kcname" ]; then
+            NAMESPACE="$kns"
+            KEYCLOAK_CR_NAME="$kcname"
+            KEYCLOAK_CRD="keycloaks"
+            KEYCLOAK_API="rhbk"
+            CR_EXISTS=true
+            log "Detected Keycloak (k8s.keycloak.org) '$KEYCLOAK_CR_NAME' in namespace $NAMESPACE — skipping legacy keycloak.org/v1alpha1 CR"
+            break
+        fi
+    done
+fi
+
+# Determine the correct resource name (try both singular and plural) — RH-SSO / legacy path only
 # The error message showed "keycloaks.k8s.keycloak.org", so try plural first
+if [ "$KEYCLOAK_API" = "legacy" ]; then
 KEYCLOAK_CRD="keycloaks"
 if oc get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1 || oc get crd keycloaks.keycloak.org >/dev/null 2>&1; then
     log "Detected Keycloak CRD: keycloaks"
@@ -435,17 +456,28 @@ else
         fi
     fi
 fi
+fi
 
 if [ "$CR_EXISTS" = true ]; then
     log "Keycloak CR '$KEYCLOAK_CR_NAME' already exists"
     
-    # Check if it's ready
-    KEYCLOAK_READY=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-    KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    # Check if it's ready (RH-SSO uses .status.ready; RHBK k8s.keycloak.org uses status.conditions)
+    if [ "$KEYCLOAK_API" = "rhbk" ]; then
+        KEYCLOAK_READY=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+        KEYCLOAK_PHASE=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "")
+    else
+        KEYCLOAK_READY=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    fi
     
-    if [ "$KEYCLOAK_READY" = "true" ]; then
+    if [ "$KEYCLOAK_READY" = "true" ] || [ "$KEYCLOAK_READY" = "True" ]; then
         log "✓ Keycloak instance is already ready"
-        KEYCLOAK_EXTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.externalURL}' 2>/dev/null || echo "")
+        if [ "$KEYCLOAK_API" = "rhbk" ]; then
+            KEYCLOAK_EXTERNAL_URL=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostname.hostname}' 2>/dev/null || echo "")
+            [ -n "$KEYCLOAK_EXTERNAL_URL" ] && KEYCLOAK_EXTERNAL_URL="https://${KEYCLOAK_EXTERNAL_URL}"
+        else
+            KEYCLOAK_EXTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.externalURL}' 2>/dev/null || echo "")
+        fi
         if [ -n "$KEYCLOAK_EXTERNAL_URL" ]; then
             log "  External URL: $KEYCLOAK_EXTERNAL_URL"
         fi
@@ -454,6 +486,9 @@ if [ "$CR_EXISTS" = true ]; then
         log "Waiting for it to become ready..."
     fi
 else
+    if [ "$KEYCLOAK_API" = "rhbk" ]; then
+        error "k8s.keycloak.org Keycloak CR expected but none found in namespaces keycloak or rhsso. Create a Keycloak instance or install the operator."
+    fi
     log "Creating Keycloak CR '$KEYCLOAK_CR_NAME'..."
     
     if ! cat <<EOF | oc apply -f -
@@ -491,11 +526,12 @@ LAST_MESSAGE=""
 
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
     # Check if CR exists first
-    if ! oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE >/dev/null 2>&1; then
+    if ! oc get "$KEYCLOAK_CRD" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             warning "Keycloak CR '$KEYCLOAK_CR_NAME' not found. It may have been deleted or not created properly."
+            if [ "$KEYCLOAK_API" = "legacy" ]; then
             log "Attempting to recreate..."
-            # Try to recreate the CR
+            # Try to recreate the CR (RH-SSO / keycloak.org only)
             if ! cat <<EOF | oc apply -f - 2>&1
 apiVersion: keycloak.org/v1alpha1
 kind: Keycloak
@@ -515,17 +551,24 @@ EOF
                 log "CR recreated, waiting for operator to process..."
                 sleep 5
             fi
+            fi
         fi
         KEYCLOAK_READY_STATUS="false"
         KEYCLOAK_PHASE=""
         KEYCLOAK_MESSAGE="CR not found"
     else
-        KEYCLOAK_READY_STATUS=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        KEYCLOAK_MESSAGE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.message}' 2>/dev/null || echo "")
+        if [ "$KEYCLOAK_API" = "rhbk" ]; then
+            KEYCLOAK_READY_STATUS=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+            KEYCLOAK_PHASE=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.observedGeneration}' 2>/dev/null || echo "")
+            KEYCLOAK_MESSAGE=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="HasErrors")].message}' 2>/dev/null || echo "")
+        else
+            KEYCLOAK_READY_STATUS=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+            KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            KEYCLOAK_MESSAGE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.message}' 2>/dev/null || echo "")
+        fi
     fi
     
-    if [ "$KEYCLOAK_READY_STATUS" = "true" ]; then
+    if [ "$KEYCLOAK_READY_STATUS" = "true" ] || [ "$KEYCLOAK_READY_STATUS" = "True" ]; then
         KEYCLOAK_READY=true
         log "✓ Keycloak instance is ready"
         break
@@ -671,9 +714,16 @@ log ""
 log "Retrieving Keycloak access information..."
 
 # Try to get URLs from CR first
-KEYCLOAK_EXTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.externalURL}' 2>/dev/null || echo "")
-KEYCLOAK_INTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.internalURL}' 2>/dev/null || echo "")
-KEYCLOAK_CREDENTIAL_SECRET=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.credentialSecret}' 2>/dev/null || echo "")
+if [ "$KEYCLOAK_API" = "rhbk" ]; then
+    KEYCLOAK_EXTERNAL_URL=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostname.hostname}' 2>/dev/null || echo "")
+    [ -n "$KEYCLOAK_EXTERNAL_URL" ] && KEYCLOAK_EXTERNAL_URL="https://${KEYCLOAK_EXTERNAL_URL}"
+    KEYCLOAK_INTERNAL_URL=""
+    KEYCLOAK_CREDENTIAL_SECRET=""
+else
+    KEYCLOAK_EXTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.externalURL}' 2>/dev/null || echo "")
+    KEYCLOAK_INTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.internalURL}' 2>/dev/null || echo "")
+    KEYCLOAK_CREDENTIAL_SECRET=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.credentialSecret}' 2>/dev/null || echo "")
+fi
 
 # If CR doesn't exist, try to get URL from route
 if [ -z "$KEYCLOAK_EXTERNAL_URL" ]; then

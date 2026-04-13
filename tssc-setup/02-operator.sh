@@ -882,8 +882,30 @@ if [ -z "$CSV_NAME" ]; then
     exit 1
 fi
 
+# OLM can leave CSV in Installing for a long time after the operator Deployment/Pods are actually ready.
+# Prefer exiting this wait when openshift-operators shows a healthy operator workload.
+rhtas_operator_controller_ready() {
+    local dep ready want n
+    n=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+    if [ "${n:-0}" -ge 1 ]; then
+        ready=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.ready}{"\n"}{end}{end}' 2>/dev/null | grep -c true || echo 0)
+        if [ "${ready:-0}" -ge 1 ]; then
+            return 0
+        fi
+    fi
+    dep=$(oc get deployment -n openshift-operators -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -iE 'trusted-artifact-signer|rhtas' | head -1)
+    if [ -n "$dep" ]; then
+        ready=$(oc get deployment "$dep" -n openshift-operators -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+        want=$(oc get deployment "$dep" -n openshift-operators -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)
+        if [ -n "${ready:-}" ] && [ "${want:-1}" != "0" ] && [ "$ready" = "$want" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Wait for CSV to be in Succeeded phase AND deployment to be ready
-echo "Waiting for CSV to be installed (Succeeded phase) and deployment to be ready..."
+echo "Waiting for RHTAS operator to be ready (preferring live Deployment/Pods over CSV phase alone)..."
 MAX_WAIT_CSV_INSTALL=600
 WAIT_COUNT=0
 CSV_SUCCEEDED=false
@@ -892,6 +914,14 @@ DEPLOYMENT_READY=false
 # Find the deployment name
 DEPLOYMENT_NAME=""
 while [ $WAIT_COUNT -lt $MAX_WAIT_CSV_INSTALL ]; do
+    if rhtas_operator_controller_ready; then
+        CSV_PHASE=$(oc get csv "$CSV_NAME" -n openshift-operators -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        echo "✓ RHTAS operator controller is ready in openshift-operators (CSV phase: ${CSV_PHASE:-unknown} — continuing without waiting only on CSV Succeeded)"
+        CSV_SUCCEEDED=true
+        DEPLOYMENT_READY=true
+        break
+    fi
+
     CSV_PHASE=$(oc get csv $CSV_NAME -n openshift-operators -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
     CSV_CONDITIONS=$(oc get csv $CSV_NAME -n openshift-operators -o jsonpath='{.status.conditions[*].type}' 2>/dev/null || echo "")
     
@@ -1021,8 +1051,12 @@ if [ "$CRDS_INSTALLED" = false ]; then
     exit 1
 fi
 
-# Wait for operator pods to be running
+# Wait for operator pods to be running (skip if we already confirmed controller readiness above)
 echo ""
+if [ "$DEPLOYMENT_READY" = true ]; then
+    echo "RHTAS operator pods already verified — skipping duplicate wait."
+    OPERATOR_PODS_READY=true
+else
 echo "Waiting for RHTAS operator pods to be running..."
 
 # Find deployment name if not already found
@@ -1159,6 +1193,8 @@ if [ "$OPERATOR_PODS_READY" = false ]; then
     echo "  oc logs -n openshift-operators -l name=trusted-artifact-signer-operator --tail=50"
     echo ""
     echo "This may cause issues when deploying RHTAS components. Continuing anyway..."
+fi
+
 fi
 
 echo ""

@@ -86,7 +86,17 @@ else
     fi
 fi
 
+cosign_and_gitsign_on_path_ok() {
+    command -v cosign &>/dev/null || return 1
+    command -v gitsign &>/dev/null || return 1
+    cosign version &>/dev/null || return 1
+    return 0
+}
+
 log "Installing cosign and gitsign..."
+if cosign_and_gitsign_on_path_ok; then
+    log "✓ cosign and gitsign already installed and runnable; skipping installer"
+else
 if rhtas_client_server_route_ready; then
     log "RHTAS client-server Route found; running Red Hat TSSC installer..."
     if install_cosign_gitsign_rhtas_installer; then
@@ -98,6 +108,7 @@ if rhtas_client_server_route_ready; then
 else
     warning "No client-server Route in trusted-artifact-signer (or oc not logged in). Installing cosign/gitsign from GitHub releases..."
     install_cosign_gitsign_github
+fi
 fi
 
 log "✓ cosign / gitsign installation finished"
