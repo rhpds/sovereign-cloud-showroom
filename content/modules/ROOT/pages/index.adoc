@@ -69,7 +69,7 @@ First, let's verify that the contexts and clusters are configured correctly.
 
 [start=1]
 . Switch to the *Bastion* tab, located on the right side of the screen.
-. Verify that both contexts appear and that the current marker (`*`) is on *local-cluster* (the cluster you just logged into):
+. Verify that both contexts appear:
 +
 [source,sh,subs="attributes",role=execute]
 ----
@@ -96,7 +96,7 @@ oc config use-context local-cluster
 +
 IMPORTANT: You will need to switch between contexts as needed throughout the lab. Please ensure you have access to both clusters before proceeding. Otherwise contact the instructor.
 
-=== Configure a few insecure applications while you work on Module 1
+=== Install insecure applications while you work on Module 1
 
 We are going to deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
 
@@ -119,7 +119,7 @@ cd ~/svc-lab
 bash setup.sh
 ----
 
-=== OpenShift Console Access
+=== OpenShift Console Access (and RHACM Console Access)
 
 The Red Hat Advanced Cluster Management for Kubernetes (RHACM) Console is now integrated with OpenShift Console. To access it, select *Fleet Management* from the dropdown menu on the left once you log in.
 

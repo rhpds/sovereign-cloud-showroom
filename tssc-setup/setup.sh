@@ -303,8 +303,13 @@ log "  oc get pods -n ${KEYCLOAK_NAMESPACE:-rhsso}"
 log "  oc get pods -n trusted-artifact-signer"
 log "  oc get securesigns -n trusted-artifact-signer"
 log ""
-log "To get cosign configuration URLs, run:"
-log "  bash ${DEPLOY_SCRIPT}"
+if [ "$SKIP_DEPLOY" = false ]; then
+    log "Cosign / sigstore environment (TUF, Fulcio, Rekor, OIDC):"
+    log "  source ${SCRIPT_DIR}/cosign-env.sh"
+    log "  cosign initialize"
+else
+    warning "Deploy was skipped; cosign-env.sh was not updated. Run ${DEPLOY_SCRIPT} or full setup to generate it."
+fi
 log ""
 
 # Display Keycloak Admin Access Information at the end
