@@ -8,6 +8,583 @@ Assurance is critical for sovereignty, ensuring that applications operate in a c
 
 So let's get practical in our example of an EMEA environment and a US environment and observe, audit, police and manage our clusters and application applications. We will start by looking at the security, compliance and environment insights that we can get from Red Hat Advanced Cluster Security for Kubernetes (RHACS).
 
+== Working with RHACM Policies to Secure your Infrastructure
+
+Traditional approaches to multi-cluster compliance rely on manual configuration, per-cluster runbooks, or bespoke automation scripts. These approaches are error-prone, difficult to audit, and do not scale. RHACM solves this by providing:
+
+* **Declarative policy-as-code** — compliance requirements are expressed as Kubernetes resources that can be version-controlled, reviewed, and audited.
+* **Automatic placement** — policies are delivered to the correct clusters based on ClusterSet membership and labels, eliminating manual targeting.
+* **Continuous compliance monitoring** — RHACM continuously evaluates policy compliance and surfaces violations in a centralized dashboard.
+* **Separation of concerns** — platform teams define the governance framework, while application teams operate within the guardrails.
+
+By the end of this module, you will be able to:
+
+* Author self-contained policy files with embedded Placements and PlacementBindings
+* Use Placements that combine the `managed` ClusterSet with `location` label selectors
+* Enforce region-specific compliance controls (GDPR for EMEA, NIST for US)
+* Organize policies into PolicySets for governance visibility
+* Verify compliance status via the RHACM console
+
+== Deploying Policies to Manage Clusters
+
+We will start by deploying policies to the EMEA Cluster. The EMEA - European Union's - General Data Protection Regulation (GDPR) is one of the most comprehensive data protection frameworks in the world. It applies to any organization that processes personal data of EU residents, regardless of where the organization is headquartered. For Kubernetes clusters operating in EMEA, GDPR imposes specific technical requirements that must be codified as policy.
+
+The three EMEA policies in this module address the core pillars of GDPR's technical requirements: **data residency labeling** (Articles 44-49 — ensuring sovereignty namespaces exist with proper classification metadata), **data protection by design** (Article 25 — network isolation), and **security of processing** (Article 32 — pod security hardening).
+
+=== Deploying Policies to the EMEA Managed Cluster
+
+GDPR Articles 44-49 restrict the transfer of personal data outside the European Economic Area (EEA) unless specific safeguards are in place. Before any technical control can be applied — network policies, pod security, encryption — there must be a **clearly defined, properly labeled environment** that signals its compliance status to both automated systems and human auditors.
+
+Namespace labels and annotations serve as the foundation of Kubernetes-native compliance. They enable:
+
+* **Automated policy targeting** — other policies (like network restrictions or pod security) can use namespace selectors to apply controls only to namespaces marked as GDPR-restricted, avoiding unnecessary restrictions on non-sensitive workloads.
+* **Audit and reporting** — regulators and internal compliance teams can query the cluster to identify all namespaces handling EU personal data. Annotations provide human-readable context such as the applicable GDPR articles, the compliance framework, and the data protection officer contact.
+* **Workload placement governance** — by requiring labels like `sovereignty: emea-only` and `data-classification: gdpr-restricted`, organizations establish a contract: any workload deployed to this namespace is subject to GDPR controls, and any workload handling EU personal data _must_ be deployed to a namespace with these labels.
+
+This policy ensures two sovereignty namespaces exist on every EMEA cluster:
+
+* **`gdpr-workloads`** — the primary GDPR-controlled namespace, fully labeled with data classification, sovereignty, compliance framework, and Pod Security Admission labels. Annotations document the applicable regulation, specific GDPR articles, data residency restrictions, and the DPO contact.
+* **`data-residency-emea`** — an additional data residency namespace with core GDPR labels and annotations, providing a dedicated landing zone for workloads with strict EU-only data residency requirements.
+
+Without these labeled namespaces, organizations cannot demonstrate to regulators that they have designated environments for EU personal data processing — a fundamental GDPR compliance gap.
+
+. Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
++
+image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+
+. Next, paste the following YAML Click *Create*
++
+[source,yaml]
+----
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-emea-namespace-compliance
+  namespace: policies
+  annotations:
+    policy.open-cluster-management.io/standards: GDPR
+    policy.open-cluster-management.io/categories: Data Protection
+    policy.open-cluster-management.io/controls: Data Residency Labeling
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: emea-sovereignty-namespace
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: gdpr-workloads
+                  labels:
+                    data-classification: gdpr-restricted
+                    sovereignty: emea-only
+                    compliance-framework: gdpr
+                    pod-security.kubernetes.io/enforce: restricted
+                    pod-security.kubernetes.io/audit: restricted
+                    pod-security.kubernetes.io/warn: restricted
+                  annotations:
+                    compliance.example.com/regulation: "EU General Data Protection Regulation"
+                    compliance.example.com/articles: "Article 25, Article 32, Article 44-49"
+                    compliance.example.com/data-residency: "EU/EEA only"
+                    compliance.example.com/contact: "dpo@example.com"
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: emea-data-residency-namespace
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: data-residency-emea
+                  labels:
+                    data-classification: gdpr-restricted
+                    sovereignty: emea-only
+                    compliance-framework: gdpr
+                  annotations:
+                    compliance.example.com/regulation: "EU General Data Protection Regulation"
+                    compliance.example.com/data-residency: "EU/EEA only"
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-policy-emea-namespace-compliance
+  namespace: policies
+spec:
+  clusterSets:
+    - managed
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: location
+              operator: In
+              values:
+                - emea
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-emea-namespace-compliance
+  namespace: policies
+placementRef:
+  name: placement-policy-emea-namespace-compliance
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: policy-emea-namespace-compliance
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+----
+image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+
+. Verify that the YAML was added properly and there are no errors.
++
+image::02-rhacm-yaml-2.png[link=self, window=blank, width=100%]
+
+. Next, click Gorvernance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
++
+image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+
+. Verify that the *policy emea-namespace-compliance* was created. Notice the Redmediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
++
+image::02-rhacm-yaml-4.png[link=self, window=blank, width=100%]
+
+. It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
++
+image::02-rhacm-yaml-5.png[link=self, window=blank, width=100%]
+
+Lets Apply another policy to the EMEA Cluster. This policy implements **network-level data sovereignty** by creating a NetworkPolicy in the `data-residency-emea` namespace that blocks all egress traffic to external IP addresses. Only cluster-internal communication (RFC 1918 addresses) and DNS resolution are permitted. This ensures that:
+
+* Workloads in the GDPR-restricted namespace **cannot send data to external endpoints** — whether intentionally (API calls to non-EU services) or accidentally (misconfigured logging, telemetry, or dependency resolution).
+* The only allowed communication is **within the cluster boundary**, which is presumed to be within the EU/EEA geographic region.
+* DNS resolution is permitted so that internal service discovery continues to function.
+
+. Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
++
+image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+
+. Next, paste the following YAML Click *Create*
++
+[source,yaml]
+----
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-emea-network-sovereignty
+  namespace: policies
+  annotations:
+    policy.open-cluster-management.io/standards: GDPR
+    policy.open-cluster-management.io/categories: Network Security
+    policy.open-cluster-management.io/controls: Egress Restriction
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: emea-deny-external-egress
+        spec:
+          remediationAction: inform
+          severity: critical
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: deny-external-egress
+                  namespace: data-residency-emea
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Egress
+                  egress:
+                    - to: []
+                      ports:
+                        - protocol: UDP
+                          port: 53
+                        - protocol: TCP
+                          port: 53
+                    - to:
+                        - ipBlock:
+                            cidr: 10.0.0.0/8
+                        - ipBlock:
+                            cidr: 172.16.0.0/12
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-policy-emea-network-sovereignty
+  namespace: policies
+spec:
+  clusterSets:
+    - managed
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: location
+              operator: In
+              values:
+                - emea
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-emea-network-sovereignty
+  namespace: policies
+placementRef:
+  name: placement-policy-emea-network-sovereignty
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: policy-emea-network-sovereignty
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+----
+image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+
+. Verify that the YAML was added properly and there are no errors.
++
+image::02-rhacm-yaml-6.png[link=self, window=blank, width=100%]
+
+. Next, click Gorvernance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
++
+image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+
+. Verify that the *policy-emea-network-sovereignty* was created. Notice the Redmediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
++
+image::02-rhacm-yaml-7.png[link=self, window=blank, width=100%]
+
+. It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
++
+image::02-rhacm-yaml-8.png[link=self, window=blank, width=100%]
+
+=== Deploying Policies to the US Managed Cluster
+
+Now that we have locked down the *hcp-emea* cluster, lets work on locking down the *aws-us* cluster with two Policies. 
+
+The National Institute of Standards and Technology (NIST) Special Publication 800-53 is the primary security and privacy controls framework used by US federal agencies and many private sector organizations. Unlike GDPR, which focuses heavily on data residency and individual privacy rights, NIST 800-53 takes a broader systems-security approach — emphasizing access control, audit accountability, boundary protection, and continuous monitoring.
+
+While GDPR asks "where is the data and can it leave?", NIST 800-53 asks "who can access the system, is access being logged, and are the boundaries controlled?" This difference in philosophy results in policies that address similar sovereignty concepts but with different technical implementations.
+
+The two US policies in this module address: **namespace compliance labeling** (SC-16) and **audit accountability** (AU-2).
+
+. Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
++
+image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+
+. Next, paste the following YAML Click *Create*
++
+[source,yaml]
+----
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-us-namespace-compliance
+  namespace: policies
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: System and Communications Protection
+    policy.open-cluster-management.io/controls: SC-16 Transmission of Security Attributes
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: us-sovereignty-namespace
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: nist-workloads
+                  labels:
+                    data-classification: nist-controlled
+                    sovereignty: us-only
+                    compliance-framework: nist-800-53
+                    pod-security.kubernetes.io/enforce: restricted
+                    pod-security.kubernetes.io/audit: restricted
+                    pod-security.kubernetes.io/warn: restricted
+                  annotations:
+                    compliance.example.com/framework: "NIST SP 800-53 Rev. 5"
+                    compliance.example.com/controls: "AC-6, AU-2, SC-7, SC-16"
+                    compliance.example.com/data-handling: "US jurisdiction only"
+                    compliance.example.com/contact: "security-team@example.com"
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: us-data-classification-namespace
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: data-classification-us
+                  labels:
+                    data-classification: nist-controlled
+                    sovereignty: us-only
+                    compliance-framework: nist-800-53
+                  annotations:
+                    compliance.example.com/framework: "NIST SP 800-53 Rev. 5"
+                    compliance.example.com/data-handling: "US jurisdiction only"
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-policy-us-namespace-compliance
+  namespace: policies
+spec:
+  clusterSets:
+    - managed
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: location
+              operator: In
+              values:
+                - us
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-us-namespace-compliance
+  namespace: policies
+placementRef:
+  name: placement-policy-us-namespace-compliance
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: policy-us-namespace-compliance
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+----
+image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+
+. Verify that the YAML was added properly and there are no errors.
++
+image::02-rhacm-yaml-9.png[link=self, window=blank, width=100%]
+
+. Next, click Gorvernance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
++
+image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+
+. Verify that the *policy-us-namespace-compliance* was created. Notice the Redmediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
++
+image::02-rhacm-yaml-10.png[link=self, window=blank, width=100%]
+
+. It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
++
+image::02-rhacm-yaml-11.png[link=self, window=blank, width=100%]
+
+Audit logging is the cornerstone of the NIST compliance model. Where GDPR relies on technical prevention (blocking data from leaving), NIST relies on **detection and accountability** — the assumption that if all actions are logged and monitored, unauthorized activity will be identified and responded to. This is why the US network boundary policy (Step 5) allows outbound HTTPS while this audit policy ensures that all API server activity is captured.
+
+This policy ensures two things:
+
+* The OpenShift API Server audit profile is set to `WriteRequestBodies`, which captures the full content of all write requests (creates, updates, patches, deletes) to the API server. This provides a complete audit trail of who changed what and when — essential for incident response, forensic analysis, and regulatory compliance reporting.
+* A dedicated `audit-logging` namespace exists for centralized log collection infrastructure, labeled with `compliance-framework: nist-800-53` to indicate its purpose.
+
+. Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
++
+image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+
+. Next, paste the following YAML Click *Create*
++
+[source,yaml]
+----
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-us-audit-logging
+  namespace: policies
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: Audit and Accountability
+    policy.open-cluster-management.io/controls: AU-2 Audit Events
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: us-audit-profile
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: config.openshift.io/v1
+                kind: APIServer
+                metadata:
+                  name: cluster
+                spec:
+                  audit:
+                    profile: WriteRequestBodies
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: us-audit-namespace
+        spec:
+          remediationAction: inform
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: audit-logging
+                  labels:
+                    compliance-framework: nist-800-53
+                    purpose: centralized-audit
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-policy-us-audit-logging
+  namespace: policies
+spec:
+  clusterSets:
+    - managed
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: location
+              operator: In
+              values:
+                - us
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-us-audit-logging
+  namespace: policies
+placementRef:
+  name: placement-policy-us-audit-logging
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: policy-us-audit-logging
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+----
+
+image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+
+. Verify that the YAML was added properly and there are no errors.
++
+image::02-rhacm-yaml-12.png[link=self, window=blank, width=100%]
+
+. Next, click Gorvernance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
++
+image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+
+. Verify that the *policy-us-audit-logging* was created. Notice the Redmediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
++
+image::02-rhacm-yaml-13.png[link=self, window=blank, width=100%]
+
+. It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
++
+image::02-rhacm-yaml-14.png[link=self, window=blank, width=100%]
+
+You have now successfully applied policies to your clusters with YAML. Please note that all of these policies can be used via RedHat GitOps making the process even easier.
+
+=== Organizing your Policies by GEO
+
+Policy Sets allow you to group related policies together for cleaner governance views in the RHACM console. This step is optional but recommended for production environments.
+
+. Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
++
+[source,yaml]
+----
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PolicySet
+metadata:
+  name: emea-gdpr-policyset
+  namespace: policies
+spec:
+  description: GDPR sovereignty controls for EMEA clusters
+  policies:
+    - policy-emea-namespace-compliance
+    - policy-emea-network-sovereignty
+---
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PolicySet
+metadata:
+  name: us-nist-policyset
+  namespace: policies
+spec:
+  description: NIST 800-53 controls for US clusters
+  policies:
+    - policy-us-namespace-compliance
+    - policy-us-audit-logging
+----
+
+image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+
+. Verify that the YAML was added properly and there are no errors.
++
+image::02-rhacm-yaml-15.png[link=self, window=blank, width=100%]
+
+. Next, click Gorvernance Screen and Navigate to the *Policy Sets* tab. In here you will see two policy sets *emea-gdpr-policyset* and *us-nist-policyset* This helps organize the multiple policies into sets for easier distrubution feel free to click on them to see the policies 
++
+image::02-rhacm-yaml-16.png[link=self, window=blank, width=100%]
+
+=== Key Takeaways
+
+. **Self-contained policy files** — each YAML includes the Policy, Placement, and PlacementBinding, reducing complexity and making each policy independently deployable.
+. **`managed` ClusterSet + location labels** — Placements reference the `managed` ClusterSet and use `location` label selectors for precise regional targeting.
+. **Symmetric policy coverage** — both regions have 3 region-specific policies + 1 shared baseline, enabling direct compliance comparison.
+. **Different frameworks, different controls** — the same sovereignty concepts (data governance, networking, runtime/audit) are addressed with different technical implementations per jurisdiction.
+. **Inform mode for visibility** — all policies use `remediationAction: inform`, providing compliance visibility without automatically changing cluster state. This allows teams to assess compliance posture before switching individual policies to `enforce` mode.
+
+== Ensure the RHACS Operator is Installed and Running
+
+. Run the following script in the bastion host terminal to ensure the RHACS operator is installed and running;
+
+[source,sh,subs="attributes",role=execute]
+----
+cd ~/svc-lab
+./lab-setup/03-compliance-operator-install.sh
+----
+
+[[security-and-environment-insights]]
+
 == Security and Environment Insights
 
 **First let's review the basics of Red Hat Advanced Cluster Security.**
