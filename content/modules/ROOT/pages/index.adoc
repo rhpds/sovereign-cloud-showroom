@@ -10,16 +10,16 @@ Do the modules in order and follow the instructions carefully. And make sure to 
 [[introduction]]
 == Introduction
 
-Customers today want flexibility. They want to do more, with less, while accelerating AI adoption to stay ahead of the market. Geographic specific compliance standards, petabytes of data in restricted environments, and increasing provider costs are all pushing organizations to reevaluate their technology strategies. Customers are seeking Sovereign Cloud solutions to provide the flexibility necessary to be adaptive in the age of AI and geographic specific requirements.
+Organizations today want flexibility. They want to do more, with less, while accelerating AI adoption to stay ahead of the market. Organizations have geographic specific compliance standards, petabytes of data in restricted environments, and increasing provider costs are all pushing organizations to reevaluate their technology strategies. Organizations are seeking a "Sovereign Cloud" approach from their technology providers to provide the flexibility necessary to be adaptive in the age of AI and geographic specific requirements.
 
-Red Hat is perfectly positioned to take advantage of these customer needs. With Red Hat's existing hybrid cloud approach, setting up an automated sovereign cloud architecture is simple. Red Hat has the tools to manage data privacy and compliance concerns, bringing simplified management of OpenShift clusters, containers, virtual machines, and AI applications, while providing hardened authorization, authentication, data controls, encryption, vulnerability management, and more.
+*We at Red Hat are perfectly positioned to help organizations achieve these goals.* 
 
-In this lab, you will progress through a simplified migration process where you, the customer, will bring your workflows and applications to an on premise and cloud environment, bringing your platform, to your data, in a compliant, secure, and repeatable manner.
+Red Hat is THE Open Source and Linux company built on the principles of openness, collaboration, and innovation. Red Hat's existing hybrid cloud approach, was designed to help organizations manage data privacy and compliance concerns, bringing simplified management of OpenShift clusters, containers, virtual machines, and AI applications to an orgainzations data. The Hybrid cloud approach is built to enable organizations to deploy and manage their own sovereign cloud architectures, enabling application and data mobility and policy enforcement.
 
 [[what-youll-learn]]
 == What You'll Learn
 
-This lab demonstrates how Red Hat Solutions can empower enterprises to manage their own sovereign cloud architectures enabling application and data mobility and policy enforcement.
+In this lab, you will progress through a simplified migration process where you, the customer, will bring your workflows and applications to an on premise and cloud environment, bringing your platform, to your data, in a compliant, secure, and repeatable manner.
 
 Through hands-on activities, you will:
 
@@ -174,6 +174,6 @@ Administrator login credentials:
 [[whats-next]]
 == What's Next
 
-Click on any module above to begin. We recommend starting with Module 1 and proceeding sequentially, as each module builds upon concepts from previous modules.
+image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWtnYWVvd3NmdHB6NXhkZjE1N3BzdGpyZG5vajIzeTY2NDE5a2J6NiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3og0ICZh82LEsNjHoc/giphy.gif[Celebration, width=400, align="center"]
 
-*Customer Value:* Upon completing this lab, you will be equipped to propose and implement sovereign cloud solutions that enable organizations to pursue digital transformation while meeting strict regulatory requirements—turning compliance from a barrier into a competitive advantage.
+We recommend starting with Module 1 and proceeding sequentially, as each module builds upon concepts from previous modules.

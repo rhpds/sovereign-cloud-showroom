@@ -2,7 +2,11 @@
 
 = Assurance
 
-Assurance is critical for sovereignty, ensuring that applications operate in a compliant manner and that clusters maintain compliance across diverse regions and geographies. It is essential to have confidence that compliance reports are accurate, testable, and auditable, thereby supporting and advancing key business objectives. Additionally, enabling teams to collaborate effectively through the use of appropriate tools and technologies helps drive organizational success.
+*Sovereignty isn’t just about control — it’s about confidence*
+
+Confidence that your applications and clusters operate exactly as intended, fully compliant with regulations, security standards, and internal policies no matter where they run.
+
+Without robust assurance, even the most advanced cloud native environments carry hidden risks. A single compliance gap can expose your organization to regulatory fines, security breaches, data sovereignty violations, or loss of customer trust. Assurance eliminates that uncertainty. It delivers verifiable proof that every workload and cluster meets the highest standards of security and compliance across EMEA, the US, and beyond.
 
 *Achieving this level of assurance requires a practical and structured approach.*
 
@@ -623,14 +627,17 @@ Administrator login is available with:
 
 [[rhacs-compliance-operator-installation-and-compliance-checks]]
 
-== RHACS Compliance Operator Installation and Compliance Checks
+== Complaince Checks with RHACS and the Compliance Operator
 
-Before making changes to your cluster, it's essential to understand your current compliance posture. Red Hat Advanced Cluster Security (RHACS) seamlessly integrates with the OpenShift Compliance Operator to provide out-of-the-box compliance checks—including industry standards such as E8 and DISA STIG. You can also define custom profiles that combine multiple standards into one, streamlining your audit processes and allowing you to easily tailor compliance requirements to your organization or region. This flexibility enables you to create global profiles and maintain consistent, auditable compliance across all OpenShift environments.
+Sovereign cloud operations require that organizations are assured that their clusters and applications are compliant with regulations, security standards, and internal policies no matter where they run.
 
-=== Checking Your Compliance Posture
+Let's start by checking the compliance posture of your clusters using RHACS.
 
-The first step to any changes in a cluster is to analyze what you need to change RHACS integrates with the compliance operator to bring you a variety of compliance checks from the E8 to DISA STIG and more. RHACS can also set up custom compliance checks so you can create profiles that have both DISA STIG and E8 standards together for easier auditing and to create a profile that can become global if necessary.
+=== Setting Up Compliance Checks Across Regions
 
+RHACS integrates with the Compliance Operator to offer built-in and custom compliance checks (like E8 and DISA STIG) across your clusters. You can combine standards into custom profiles for easier auditing and global policy enforcement.
+
+.Procedure
 . Click on the *Compliance* -> *OpenShift Schedules* tab.
 +
 image::assurance-01.png[link=self, window=blank, width=100%]
@@ -660,31 +667,31 @@ Daily compliance scan for all profiles covering CIS, E8, Moderate, NERC-CIP, PCI
 . Click *Next*
 . Add the following profiles:
 * `ocp4-cis` 
-* `ocp4-cis-node` 
 * `ocp4-e8` 
-* `ocp4-moderate` 
 * `ocp4-moderate-node` 
 * `ocp4-nerc-cip`
-* `ocp4-nerc-cip-node` 
 * `ocp4-pci-dss` 
 * `ocp4-pci-dss-node` 
 * `ocp4-stig` 
 +
-NOTE: There are many profiles to select but here we are selecting the most common profiles that are used in most organizations. If you want to only add the ones necessary for the lab. Select ......
-
+NOTE: There are many profiles to select but here we are selecting the most common profiles that are used in most organizations. If you want to only add the ones necessary for the lab. Select `ocp4-cis` & `ocp4-e8` only.
++
 . Click *Next*
 +
 [NOTE]
 ====
 We will not add a delivery destination so we will skip this step. However you can send notifications via email, get details via API or download reports via the console.
 ====
-
++
 . Click *Next*
 . Review your masterpiece and click *Save*
 +
 image::assurance-05.png[link=self, window=blank, width=100%]
 +
-TIP: You should see the new schedule in the list and it will be performing it's first scan. If you click the 3 dots on the right side of the schedule you can trigger a manual scan, download the report or delete the schedule.
+[TIP]
+====
+You should see the new schedule in the list and it will be performing it's first scan. If you click the 3 dots on the right side of the schedule you can trigger a manual scan, download the report or delete the schedule.
+====
 +
 image::assurance-06.png[link=self, window=blank, width=100%]
 
@@ -692,19 +699,20 @@ image::assurance-06.png[link=self, window=blank, width=100%]
 +
 NOTE: This will take a few minutes to load, so please be patient.
 +
-TIP: The RHACS compliance coverage dashboard provides a comprehensive overview of your scan schedules and results. In the Coverage tab, you can review all scan schedules or filter to view specific schedules such as the "acs-catch-all". Each scan displays coverage across a variety of compliance standards—including CIS, OCP, E8, NERC-CIP, NIST 853, PCI-DSS, and DISA-STIG. You can filter results by specific checks for greater detail. On the right side of the dashboard, you'll see the cluster's overall compliance status, along with a breakdown of which checks are passing or failing.
-+
 image::assurance-07.png[link=self, window=blank, width=100%]
 +
+. Analyze the results. What changes can we make to pass the compliance checks?
++
+====
+The RHACS compliance coverage dashboard provides a comprehensive overview of your scan schedules and results. In the Coverage tab, you can review all scan schedules or filter to view specific schedules such as the "acs-catch-all". Each scan displays coverage across a variety of compliance standards—including CIS, OCP, E8, NERC-CIP, NIST 853, PCI-DSS, and DISA-STIG. You can filter results by specific checks for greater detail. On the right side of the dashboard, you'll see the cluster's overall compliance status, along with a breakdown of which checks are passing or failing.
+====
 
-=== Analyze Compliance Results
-
-Managing multi-region and multi-geo environments presents specific challenges. Typically, changes are initiated by the operations team, who are responsible for provisioning and managing the infrastructure. They also oversee any modifications needed to enhance security or ensure compliance with applicable standards. Establishing clear processes and leveraging automation can help maintain consistency and compliance across all environments. In OpenShift, cluster changes are done by the administrator or the operations team through the OpenShift console with Red Hat Advanced Cluster Management for Kubernetes (RHACM) providing the governance and policy capabilities.
 
 === Make a Simple Cluster Change to Pass the Compliance Check
 
 Let's focus on the *ocp4-e8* compliance checks. To pass the `ocp4-e8-ocp-allowed-registries` standard, you need to set an allowlist of container registries that OpenShift can pull images from.
 
+.Procedure
 . First let's take a look at the standard.
 +
 Click on the *Compliance* -> *OpenShift Coverage* -> *E8* tab.
@@ -721,11 +729,11 @@ image::compliance-03.png[link=self, window=blank, width=100%]
 ====
 If you don't see any results yet, wait a few minutes. The initial scan does take a while. You may need to switch between the *CIS-OCP* and *E8* tab to see the refresh.
 ====
-
++
 . And then clicking on the failing standard `ocp4-e8-ocp-allowed-registries`.
 +
 Here you will see the cluster impacted by this failing standard and guidance on how to resolve the issue.
-
++
 . Click on the *Details* tab next to *Results* and review the findings for the failing check.
 +
 To address this, limit the set of container registries that OpenShift is allowed to pull images from by configuring the cluster with a new allowlist. We will do this by applying a YAML configuration as an OpenShift administrator, and then re-scan the cluster to verify compliance.
@@ -754,11 +762,8 @@ spec:
 EOF
 ----
 +
-[TIP]
-.For some extra context
+*Here are the notes on the allowed registries policy:*
 ====
-Here are the notes on the allowed registries policy:
-
 * `image-registry.openshift-image-registry.svc:5000` is required for OpenShift’s internal image registry.
 * Add or remove registries according to your environment’s needs.
 * Every registry accessed by the cluster must be included in this list for the policy to pass.
@@ -788,14 +793,17 @@ status:
 
 === Verification
 
+.Procedure
 . To verify remediation and compliance with the `ocp4-e8-ocp-allowed-registries` requirement:
 .. Go back to the *RHACS* console.
 .. Navigate to *Compliance* → *OpenShift Schedules* and locate your schedule (for example, `acs-catch-all`).
 .. Use the menu on the schedule (three dots) and select *Run scan* to trigger a manual scan.
++
+image::assurance-08.png[link=self, window=blank, width=100%]
 
-Updating your allowed image registries is one of the fastest and most effective ways to improve security and compliance in OpenShift. Other quick hardening steps include enabling audit log forwarding and activating host node auditing with Linux auditd. These security configurations can be applied consistently across the entire cluster using the MachineConfig Operator.
+Updating your allowed image registries is one of the fastest and most effective ways to improve security and compliance in OpenShift. Other quick hardening steps include enabling audit log forwarding and activating host node auditing with Linux auditd. 
 
-For even better results, you can automate these settings so new clusters are secure and compliant from the moment they are created. Tools like Ansible, Advanced Cluster Management (RHACM), or GitOps workflows make this automation straightforward and reliable.
+For more scalable changes, you can automate these settings so new clusters are secure and compliant from the moment they are created. Tools like Ansible, Advanced Cluster Management (RHACM), or GitOps workflows make this automation straightforward and reliable.
 
 === Check Results
 

@@ -2,28 +2,29 @@
 
 = Operations and Security
 
-**Operations and Security Sovereignty** means ensuring organizations can operate their technology independently and autonomously, with full control over their data, infrastructure, and security postures.
+**Operational and Security Sovereignty** means ensuring your organization can operate technology independently and autonomously, with complete control over your data, infrastructure, and security information. 
+
+This requires a robust platform that can be used to deploy and manage your clusters, containers, virtual machines, and AI applications, while providing hardened authorization, authentication, data controls, encryption, vulnerability management, and more.
 
 [[multi-env-clusters]]
 
 == Multi-Environment Red Hat OpenShift Cluster and Virtual Machine Creation and Management
 
-Cluster creation and management marks the essential first step in building a truly sovereign cloud environment. By owning the full lifecycle of your clusters—from initial deployment to ongoing operations—your organization maintains direct control over infrastructure, security policies, and data locality. This foundational capability ensures that critical workloads and data remain within your jurisdiction, enabling you to adapt rapidly to regulatory changes, respond to evolving business needs, and operate independently of external providers. Flexible cluster and virtual machine management empowers you to design cloud environments tailored specifically to your sovereignty requirements—ensuring resilience, autonomy, and full compliance from the ground up.
+Creating and managing clusters is the first step in building a sovereign cloud. When you control your clusters—from setup to daily operations—you decide where your workloads and data live, set your own policies, and stay compliant. This way, you can quickly adapt to regulations, keep your business flexible, and avoid relying on outside providers. With flexible management of clusters and virtual machines, you can build a cloud that fits your security and compliance needs from the start.
 
 [[hub-cluster-overview]]
 === RHACM Management Cluster Overview
 
-The hub cluster in Red Hat Advanced Cluster Management (RHACM) serves as the central control plane of your sovereign cloud environment for managing your entire fleet of OpenShift clusters. It provides a single point of authority and unified interface for cluster lifecycle management, policy enforcement, application deployment, and observability across multiple environments.
+Red Hat Advanced Cluster Management (RHACM) serves as the central control plane of your sovereign cloud environment for managing your entire fleet of OpenShift clusters. It provides a single point of authority and unified interface for cluster lifecycle management, policy enforcement, application deployment, and observability across multiple environments.
 
 === Create and Manage Kubernetes Clusters
 
-Red Hat Advanced Cluster Management for Kubernetes (RHACM) simplifies the deployment and management of new clusters. While Red Hat OpenShift offers easy deployment methods like IPI and the Assisted Installer, RHACM takes it a step further, allowing you to deploy new clusters with just a few clicks using the cluster creation wizard.
+Red Hat Advanced Cluster Management for Kubernetes (RHACM) simplifies the deployment and management of new OpenShiftclusters. Strategies such as IPI and the Assisted Installer are available, but RHACM takes it a step further, allowing you to deploy new clusters with just a few clicks using the cluster creation wizard.
 
-From the Clusters screen, you can quickly see how simple it is to deploy a new cluster.
+*For the first excerise, you will deploy a new cluster in the EMEA region so that you will have local, US and EMEA clusters to deploy your applications to.*
 
-*Procedure*
-
-. On the top left of the OpenShift Console, click the drop down menu and select *Fleet Management*
+.Procedure
+. On the top left of the OpenShift Console, click the "Hamburger" drop down and select *Fleet Management -> *Infrastructure* -> *Clusters*
 +
 image::08-dropdown-menu.png[link=self, window=blank, width=100%, Create VM]
 +
@@ -36,11 +37,11 @@ If you don't see the dropdown your window is not wide enough - just click the "h
 +
 image::103-create-cluster.png[link=self, window=blank, width=100%, Create Cluster]
 +
-NOTE: You'll notice that the only option already highlighted is Red Hat OpenShift Virtualization, indicating that your credentials are saved for the purpose of speeding up this lab. You will use this to deploy the new cluster, but feel free to explore the window to see other available cluster types.
-
 . Click on the *Red Hat OpenShift Virtualization* button. You will see one option for the control plane type: *Hosted*
 +
 image::104-aws-credentials.png[link=self, window=blank, width=100%, AWS Credentials]
++
+NOTE: You'll notice that the only option already highlighted is Red Hat OpenShift Virtualization, indicating that your credentials are saved for the purpose of speeding up this lab.
 +
 . Click on the *Hosted* option.
 . Leave the *Infrastructure provider credential* as *hcp*.
@@ -53,9 +54,14 @@ hcp-emea
 +
 . Verify that is on the *clusters* space for the hosted cluster namespace
 . Select *managed* for the `Cluster Set`
-. Next, select the release image *OpenShift 4.21.8* (or whatever the current 4.2x.x release image is).
+. Next, select the release image *OpenShift 4.21.9* (or whatever the current 4.21.x release image is).
 . Select *Single replica* for both the *Controller availability policy* and the *Infrastructure availability policy*.
 . Under Aditional Labels enter *location=emea*
++
+[source,sh,subs="attributes",role=execute]
+----
+location=emea
+----
 +
 [NOTE]
 ====
@@ -66,7 +72,10 @@ Single replica means components are not expected to be resilient to problems acr
 +
 image::105-create-cluster-details.png[link=self, window=blank, width=100%, Create Cluster Details]
 +
-. On the next screen you can customize the name for the node pools, the amount of pool replicas, cores and memory.
+====
+*On the next screen you can customize the name for the node pools, the amount of pool replicas, cores and memory.*
+====
++
 . Enter the name `hcp-emea` for the *Node pool name* and leave the other details as default.
 +
 [source,sh,subs="attributes",role=execute]
@@ -77,20 +86,20 @@ hcp-emea
 . Click on *Next* to proceed.
 +
 image::106-create-cluster-nodepools.png[link=self, window=blank, width=100%, Create Cluster NodePools]
-
-[TIP]
++
+[NOTE]
 ====
 The next screen allows you to configure storage mappings type to use and it's associated variables. We will leave these as default as these have already been configured on the backend and you do not need to change them.
 ====
-
-[start=15]
++
 . Click on *Next* to proceed.
-
-
++
 image::107-create-cluster-networking.png[link=self, window=blank, width=100%, Create Cluster Networking]
-
-[start=16]
-. Click *Next* on each screen to proceed to the final *Review* screen. You will see a description of the cluster you are creating.
++
+====
+*Once you are on the final Review section you will see a description of the cluster you are creating.*
+====
++
 . Click the blue *Create* button to start the deployment process.
 +
 image::108-create-cluster-summary-create.png[link=self, window=blank, width=100%, Create Cluster Summary Page]
@@ -100,21 +109,21 @@ image::108-create-cluster-summary-create.png[link=self, window=blank, width=100%
 +
 image::03-cluster-creation.png[link=self, window=blank, width=100%, View New Cluster]
 +
-NOTE: Deploying this Hosted Control Plane (HCP) cluster will take about 5 to 10 minutes. You'll continue the lab while waiting for this cluster to provision, we will use it later on.
-
-[[label-an-existing-cluster]]
+NOTE: Deploying this Hosted Control Plane (HCP) cluster will take about 5 to 10 minutes. Please continue the lab while waiting for this cluster to provision, we will use it later on.
 
 [[multi-env-workloads]]
 
 == Multi-environment Workload Creation, Management, and Observability
 
-Sovereign cloud operations require that organizations retain full control over where and how their applications run. RHACM empowers you to manage all workloads—VMs, containers, and AI/ML—centrally, ensuring policy-driven governance and compliance across multiple environments.
+*Sovereign cloud operations require that organizations retain full control over where and how their containers and virtual machines run.*
+
+RHACM empowers you to deploy, manage, and observe all workloads—VMs, containers, and AI/ML—centrally with policy-driven governance and compliance across the hybrid cloud.
 
 [[create-manage-vms]]
 
 == Create and Manage Virtual Machines Using the RHACM Console
 
-Red Hat Advanced Cluster Management (RHACM) with OpenShift Virtualization delivers centralized, policy-driven control—labeling clusters/VMs (e.g., location=emea/us), enforcing placement rules, and automating compliance to keep sovereign workloads in approved geographies via a unified console. In traditional environments, administrators often struggle with context switching—jumping between virtualization hypervisors to manage legacy workloads and Kubernetes consoles to manage modern applications. This fragmentation slows down operations and complicates governance. This single-pane-of-glass approach for VMs alongside Kubernetes resources simplifies operations, ensures auditability, and applies consistent sovereign controls to legacy and cloud-native workloads, mirroring real-world architect workflows for scalable, secure multi-cluster solutions.
+Red Hat Advanced Cluster Management (RHACM) with OpenShift Virtualization provides unified, policy-as-code driven control of clusters and VMs from a single console. It lets you label resources, enforce placement, and automate compliance—removing the need to jump between different management tools and ensuring consistent controls across all workloads.
 
 By the end of this exercise, you will:
 
@@ -126,9 +135,8 @@ NOTE: You might noticed that we have already deployed a Virtual Machine for you 
 
 === Deploy Virtual Machines Using the RHACM Console
 
-*Procedure*
-
-. On the left switcher use the drop down to select *Fleet Virtualization*
+.Procedure
+. Using the Hamburger menu select the dropdown and click on select *Fleet Virtualization*
 +
 image::08-dropdown-menu.png[link=self, window=blank, width=100%, Create VM]
 +
@@ -160,8 +168,8 @@ Please notice all of the available options to configure the VM with, these will 
 +
 image::12-vm-finish.png[link=self, window=blank, width=100%, Create VM]
 
-Feel free to explore the available management screens for VMs, from Metrics to Console to Snapshots and more!
-
+*ADD CONTENT HERE about MIGRATION and VM Analysis tools
+*
 [TIP]
 ====
 *UI or GitOps—The Choice is Yours!*
@@ -172,20 +180,26 @@ While this lab demonstrates the graphical capabilities of the RHACM console, Vir
 [[container-workloads]]
 === Deploy and Manage Container Workloads via OpenShift GitOps
 
-Red Hat® OpenShift® GitOps, powered by Argo CD and integrated with Red Hat Advanced Cluster Management (RHACM), makes application delivery faster, more secure, and consistent by using Git as the single source of truth to automatically handle declarative deployments and configurations across multiple clusters.
 
-In sovereign cloud environments—where strict data residency, regulatory compliance, and operational control are essential—the optional pull model is ideal. Remote clusters securely pull updates from Git on their own, without needing inbound connections from a central hub, which strengthens security, minimizes network risks, and keeps workloads strictly within approved geographic or jurisdictional boundaries.
+OpenShift GitOps (using Argo CD and RHACM) lets you deploy and manage apps across clusters using Git as your source of truth.
 
-For this exercise, you’ll use the simpler push model (with Argo CD already deployed in your environment and ready for RHACM configuration), giving you a centralized, easy-to-manage approach that still demonstrates how GitOps delivers scalable operations while fully supporting sovereign cloud requirements in hybrid and multi-cloud setups.
+There are two main ways clusters get updates from Git: 
+- In pull mode, each cluster gets its own updates, making things more secure and keeping everything within specific regions.
+- In push mode, a central tool sends updates out to clusters.
+
+For this lab, you’ll use the push model (with Argo CD already set up), so you can see how easy it is to deploy and manage apps with GitOps—even across multiple clusters in different locations.
 
 [[deploy-applications-using-openshift-gitops]]
 
-== Deploy Applications Using OpenShift GitOps
+== Multi-environment Application Deployment and Management
 
-In this next step, you'll use Red Hat® OpenShift® GitOps with Argo CD to declaratively deploy the `Skupper Patient Demo Application` to both your local and hosted control plane (HCP) clusters—showcasing automated, Git-driven multi-cluster consistency while supporting sovereign cloud requirements by keeping patient data securely within approved geographic boundaries.
+*Sovereign cloud operations require that organizations retain full control over where and how their containers and virtual machines run and provide the flexibility in how they are deployed and managed.*
 
-*Procedure*
+In this next step, you'll use Red Hat® OpenShift® GitOps with Argo CD to declaratively deploy the a demo application to all three clusters, including the local-cluster, EMEA cluster and the AWS US cluster. 
 
+This is all to demonstrate automated, Git-driven multi-cluster consistency while supporting sovereign cloud requirements by keeping patient data securely within approved geographic boundaries.
+
+.Procedure
 . From the **Fleet Management** tab, navigate to *Applications* from the left side menu.
 . Click *Create application*, select *ArgoCD ApplicationSet - Push Model*.
 . Enter the following information: `skupper-patient-demo`
@@ -199,9 +213,6 @@ skupper-patient-demo
 +
 image::13-argo.png[link=self, window=blank, width=100%, ArgoCD Create]
 +
-
-IMPORTANT: In the next step, ensure Cluster set is set to `global`, otherwise you will have issues in the next steps.
-+
 . Enter the following information:
 * *Name:* `openshift-gitops-global`
 +
@@ -212,6 +223,11 @@ openshift-gitops-global
 +
 * *Namespace:* `openshift-gitops` (select from dropdown)
 * *ClusterSet:* `global` (remove `default`)
++
+[IMPORTANT]
+====
+In the next step, ensure Cluster set is set to `global`, otherwise you will have issues in the next steps.
+====
 +
 image::03-argoconfig.png[link=self, window=blank, width=100%, ArgoCD Config]
 
@@ -245,54 +261,39 @@ patient-portal
 . Then click *Next*
 +
 image::03-app-gitops-2.png[link=self, window=blank, width=100%, App ACM GitOps]
-
-. Under *Sync Policy* uncheck *Automaticaly sync when cluster state changes* and check *Replace resources instead of applying changes from the source repository*
 +
-image::03-app-gitops-3.png[link=self, window=blank, width=100%, App ACM GitOps]
-+
-NOTE: These changes are only required as you will be modifying the application YAML on RHACM and you don't want it to sync to a Git Repo, you normaly wouldn't uncheck these in a real production enviroment.
-
 . Click *Next*
 . Under *Placement*, verify that *New Placement* is selected.
 * *Cluster set:* Select `global`
 . Under *Label expressions* click *Add label expression* and select the following
 * *Label:* name
 * *Operator:* equals any off
-* *Values:* aws-us, local-cluster
+* *Values:* aws-us, local-cluster, emea-cluster
 . Make sure that *Set a limit on the number of clusters selected* is checked
-. Set the number to 2
+. Set the number to 3 and click *Next*
 +
 [IMPORTANT]
 ====
-Ensure *Cluster* set is set to Global and the label values to be present in the placement rule, otherwise you will have issues in the next steps.
+Ensure *Cluster* set is set to Global and the label values to be present in the placement rule, otherwise the application will not be deployed to the correct clusters.
 ====
 +
 . Verify all of the information is correct and click *Submit*.
 
 image::03-app-placement-us.png[link=self, window=blank, width=100%, ACM App Placement US]
 
-IMPORTANT: We will use these applications in other modules of the lab hence why we have you deploy it twice in two different locations.
-
-
 === Wrapping Up
 
-In this opening module, you moved beyond basic cluster setup to orchestrating a unified environment through RHACM fleet cluster management. By leveraging Red Hat GitOps to drive applications and policies, you've essentially abstracted the underlying infrastructure, allowing fleet virtualization to handle the heavy lifting behind the scenes. This transition is critical because it shifts the focus from manual configuration to a policy-driven architecture where connectivity and governance are inherent to the system.
+In this module, you went beyond just setting up clusters and used RHACM fleet management with Red Hat GitOps to control your applications and policies. Instead of manually configuring each environment, you now use a policy-driven approach that works across all your clusters.
 
-This seamless integration provides a clear blueprint for digital sovereignty. By using GitOps to push declarative policies across your entire fleet, you are effectively enforcing your own jurisdictional standards regardless of where the physical nodes reside. You aren’t just deploying software; you’re asserting that your security posture and operational rules stay consistent across both private and public clouds, ensuring that no single cloud provider dictates your architecture.
+With GitOps, you apply your standards and rules to every cluster, no matter where it runs. This keeps your security and operations consistent across both private and public clouds, giving you control over your setup rather than the cloud provider.
 
-Ultimately, the power of this module lies in how it decouples your services from the hardware. Through fleet virtualization, you’ve built a portable, vendor-agnostic ecosystem that allows you to maintain total authority over your data and workloads.
+By virtualizing your fleet, you’ve made your environment flexible and vendor-neutral, keeping full control over your data and workloads.
 
 === Verify the Application Deployment Before Moving On
 
 IMPORTANT: It will take a few minutes to deploy the application, during this time you might see the Cluster / Application have a red X, this is expected and normal.
 
-Procedure:
-
-TIP: Please allow a few minutes before asking for help.
-
-
-[start=1]
-
+.Procedure
 . Navigate back to the *Applications* view, find the filter and select *Application Set*
 . Find the *skupper-patient-demo* app
 . Click on the *Topology Tab* to view and verify that *all of the circles are green*.
