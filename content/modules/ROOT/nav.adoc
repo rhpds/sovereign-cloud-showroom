@@ -43,3 +43,7 @@
 ** xref:module-04.adoc#install-datascience-cluster[Step 2: Create DataScienceCluster]
 ** xref:module-04.adoc#verify-installation[Verifying the Installation]
 ** xref:module-04.adoc#jupyter-notebooks-access[Accessing Jupyter Notebooks]
+
+* xref:module-05.adoc[Supplementary modules (optional)]
+** xref:module-05.adoc#deploying-policies-to-the-us-cluster[Deploying Policies to the US Cluster]
+** xref:module-05.adoc#organize-policies-by-geo[Organizing Policies by Geography]

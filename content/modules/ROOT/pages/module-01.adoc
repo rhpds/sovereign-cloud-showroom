@@ -281,26 +281,185 @@ Ensure *Cluster* set is set to Global and the label values to be present in the 
 
 image::03-app-placement-us.png[link=self, window=blank, width=100%, ACM App Placement US]
 
-=== Wrapping Up
+== Security Through Policy Guardrails
 
-In this module, you went beyond just setting up clusters and used RHACM fleet management with Red Hat GitOps to control your applications and policies. Instead of manually configuring each environment, you now use a policy-driven approach that works across all your clusters.
+*Sovereignty is not just about control — it's about confidence*
 
-With GitOps, you apply your standards and rules to every cluster, no matter where it runs. This keeps your security and operations consistent across both private and public clouds, giving you control over your setup rather than the cloud provider.
+Achieving true sovereignty across your cloud environments includes governance and the ability to change as geographic boundaries and governments do. You need automation and flexbile guardrails, as code, to achieve this.
 
-By virtualizing your fleet, you’ve made your environment flexible and vendor-neutral, keeping full control over your data and workloads.
+*RHACM is built for this purpose!*
 
-=== Verify the Application Deployment Before Moving On
+* **Codify sovereignty policies** — express sovereignty and compliance requirements as policy resources, versioned and reviewed alongside your application code.
+* **Govern at scale** — target policies to specific regions or environments using ClusterSets and labels, enforcing consistency across geographies.
+* **Monitor autonomously** — continuously check for “drift” against your defined guardrails, surfacing violations centrally to maintain trust.
+* **Delegate, but enforce boundaries** — let application teams move fast within a framework set by platform teams, ensuring business autonomy never compromises organizational standards.
 
-IMPORTANT: It will take a few minutes to deploy the application, during this time you might see the Cluster / Application have a red X, this is expected and normal.
+=== Addressing Sovereignty in a Single Cluster with Region
+
+The EMEA - European Union's - General Data Protection Regulation (GDPR) is one of the most comprehensive data protection frameworks in the world. It also comes with a lot of headaches for organizations that operate in the EU. For Kubernetes clusters operating in EMEA, GDPR imposes specific technical requirements that must be codified as policy.
+
+Let's deploy 3 policies to the EMEA cluster to address the core pillars of GDPR's technical requirements: 
+- **data residency labeling** (Articles 44-49 — ensuring sovereignty namespaces exist with proper classification metadata)
+- **data protection by design** (Article 25 — network isolation)
+- and **security of processing** (Article 32 — pod security hardening).
+
+=== Deploying Policies to the EMEA Managed Cluster
+
+
 
 .Procedure
-. Navigate back to the *Applications* view, find the filter and select *Application Set*
-. Find the *skupper-patient-demo* app
-. Click on the *Topology Tab* to view and verify that *all of the circles are green*.
+. From the Fleet Management Console Click on the *+ sign* -> *Import YAML* tab.
 +
-image::03-application-topology-git.png[link=self, window=blank, width=100%, Application Topology]
+image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
 
-**Congratulations!**
+. Next, paste the following YAML Click *Create*
++
+[source,bash,subs="+macros,+attributes",role=execute]
+----
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-emea-namespace-compliance
+  namespace: policies
+  annotations:
+    policy.open-cluster-management.io/standards: GDPR
+    policy.open-cluster-management.io/categories: Data Protection
+    policy.open-cluster-management.io/controls: Data Residency Labeling
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: emea-sovereignty-namespace
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: gdpr-workloads
+                  labels:
+                    data-classification: gdpr-restricted
+                    sovereignty: emea-only
+                    compliance-framework: gdpr
+                    pod-security.kubernetes.io/enforce: restricted
+                    pod-security.kubernetes.io/audit: restricted
+                    pod-security.kubernetes.io/warn: restricted
+                  annotations:
+                    compliance.example.com/regulation: "EU General Data Protection Regulation"
+                    compliance.example.com/articles: "Article 25, Article 32, Article 44-49"
+                    compliance.example.com/data-residency: "EU/EEA only"
+                    compliance.example.com/contact: "dpo@example.com"
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: emea-data-residency-namespace
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: data-residency-emea
+                  labels:
+                    data-classification: gdpr-restricted
+                    sovereignty: emea-only
+                    compliance-framework: gdpr
+                  annotations:
+                    compliance.example.com/regulation: "EU General Data Protection Regulation"
+                    compliance.example.com/data-residency: "EU/EEA only"
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-policy-emea-namespace-compliance
+  namespace: policies
+spec:
+  clusterSets:
+    - managed
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: location
+              operator: In
+              values:
+                - emea
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-emea-namespace-compliance
+  namespace: policies
+placementRef:
+  name: placement-policy-emea-namespace-compliance
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: policy-emea-namespace-compliance
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+----
+image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
++
+[IMPORTANT]
+====
+GDPR compliance starts with having clearly labeled namespaces. Labels and annotations allow policies to target GDPR-restricted workloads, support audit requirements, and enforce data residency. This policy requires that every EMEA cluster includes two key namespaces: `gdpr-workloads` (fully labeled for compliance) and `data-residency-emea` (for strict EU-only workloads). Proper labeling is essential for demonstrating GDPR compliance to regulators.
+====
++
+. Verify that the YAML was added properly and there are no errors.
++
+image::02-rhacm-yaml-2.png[link=self, window=blank, width=100%]
++
+. Next, click *Gorvernance* Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
++
+image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
 
-image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjl5YTd4M2o1MWZ4ZjBmMjM3cmJyMHYzZTFsbHB4ZDg0MXN1dzJvcCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/ely3apij36BJhoZ234/giphy.gif[Celebration, width=400, align="center"]
+. Verify that the *policy-emea-namespace-compliance* was created. Notice the Redmediation is set to Inform. 
+. Change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
++
+image::02-rhacm-yaml-4.png[link=self, window=blank, width=100%]
++
+. It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
++
+image::02-rhacm-yaml-5.png[link=self, window=blank, width=100%]
++
+
+====
+By creating and informing on the policies you have now ensured that the EMEA cluster is in compliance with the GDPR requirements. All new clusters with the same label will be in compliance with the GDPR requirements.
+====
+
+If you want to deploy more policies to the EMEA cluster, you can do so by following the steps in xref:module-05.adoc#deploying-more-policies-to-the-emea-cluster[Deploying MORE Policies to the EMEA Cluster].
+
+=== Operations and Security Takeaways
+
+* **Centralized cluster management** — Use RHACM to create, label, and manage OpenShift clusters across multiple regions from one place.
+
+* **Unified workload management** — Operate virtual machines and containers together, with full visibility across clusters.
+
+* **Consistent app deployment** — Deploy and update applications to multiple clusters using Git-backed automation with OpenShift GitOps and RHACM.
+
+* **Automated compliance** — Define and enforce policies as code to meet residency and organizational requirements.
+
+
+
+
+
+
+
+
+
+
+
+
 
