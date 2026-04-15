@@ -6,7 +6,7 @@
 
 == Module Goals
 
-*Own your software supply chain. *
+*Own your software supply chain.*
 
 The goal of this module is to show you how to ingest, build, sign, attest and secure your software supply chain. You'll learn how to take control of your software supply chain in sovereign cloud environments by working hands-on with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain full sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
 
