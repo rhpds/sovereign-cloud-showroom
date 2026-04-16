@@ -54,7 +54,7 @@ hcp-emea
 +
 . Verify that is on the *clusters* space for the hosted cluster namespace
 . Select *managed* for the `Cluster Set`
-. Next, select the release image *OpenShift 4.21.9* (or whatever the current 4.21.x release image is).
+. Next, select the release image *OpenShift 4.21.0* (or whatever the current 4.21.x release image is).
 . Select *Single replica* for both the *Controller availability policy* and the *Infrastructure availability policy*.
 . Under Aditional Labels enter *location=emea*
 +
@@ -280,6 +280,10 @@ Ensure *Cluster* set is set to Global and the label values to be present in the 
 . Verify all of the information is correct and click *Submit*.
 
 image::03-app-placement-us.png[link=self, window=blank, width=100%, ACM App Placement US]
+
+ . If all steps were followed, you will be able to see the application deployed with all green checkmarks - This might take 15 minutues to complete so feel free to continue to the next module.
+
+image::03-app-complete.png[link=self, window=blank, width=100%, ACM App Placement US]
 
 == Security Through Policy Guardrails
 
