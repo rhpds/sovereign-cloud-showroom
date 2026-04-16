@@ -4,6 +4,7 @@
 #
 # Quay's Route often appears well after manifests apply; increase wait with QUAY_BASHRC_MAX_WAIT (seconds).
 # Override cluster context with QUAY_OC_CONTEXT if kubeconfig has no local-cluster.
+# Set QUAY_BASHRC_QUIET=1 to suppress stdout (e.g. when setup.sh runs this after parallel install).
 
 set -uo pipefail
 
@@ -12,10 +13,12 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 log() {
+    [[ -n "${QUAY_BASHRC_QUIET:-}" ]] && return 0
     echo -e "${GREEN}[QUAY-BASHRC]${NC} $1"
 }
 
 warning() {
+    [[ -n "${QUAY_BASHRC_QUIET:-}" ]] && return 0
     echo -e "${YELLOW}[QUAY-BASHRC]${NC} $1"
 }
 

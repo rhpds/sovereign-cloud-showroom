@@ -77,7 +77,7 @@ The following command can run while you work on the first module. You do not hav
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cd ~ && git clone https://github.com/mfosterrox/summit-2026-lb1161-sovereign-cloud.git svc-lab
+cd ~ && git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab
 cd ~/svc-lab
 bash setup.sh
 ----

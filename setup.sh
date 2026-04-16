@@ -134,7 +134,7 @@ if [[ "$failed" -eq 0 ]]; then
   _quay_hook="${REPO_ROOT}/lab-setup/configure-quay-bashrc.sh"
   if [[ -f "$_quay_hook" ]]; then
     chmod +x "$_quay_hook" 2>/dev/null || true
-    bash "$_quay_hook" || true
+    QUAY_BASHRC_QUIET=1 bash "$_quay_hook" || true
   fi
   # Always persist QUAY_* here too: same shell as the user (kubeconfig/oc), and works if a fork omits the hook script.
   if [[ -n "${HOME:-}" && -w "${HOME:-}" ]]; then
@@ -158,7 +158,6 @@ if [[ "$failed" -eq 0 ]]; then
           echo "export QUAY_USER=quayadmin"
           echo "export QUAY_URL=\"${_quay_host}\""
         } >>"$_bashrc" 2>/dev/null || true
-        echo -e "${GREEN}Added QUAY_USER and QUAY_URL to ~/.bashrc (registry: ${_quay_host}).${NC}"
       fi
     elif ! grep -q '^export QUAY_URL=' "$_bashrc" 2>/dev/null; then
       echo -e "${YELLOW}Quay route not visible yet; when ready run: bash ${REPO_ROOT}/lab-setup/configure-quay-bashrc.sh${NC}"
