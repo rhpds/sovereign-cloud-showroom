@@ -105,6 +105,14 @@ for idx in "${!SCRIPTS[@]}"; do
     log ""
 done
 
+# QUAY_USER / QUAY_URL in ~/.bashrc for module-03 (retry: Quay route may appear after 05 or later in the pipeline).
+log "========================================================="
+log "Quay registry env for ~/.bashrc (module-03 podman login)"
+log "========================================================="
+chmod +x "$SCRIPT_DIR/configure-quay-bashrc.sh"
+bash "$SCRIPT_DIR/configure-quay-bashrc.sh" || true
+log ""
+
 # Podman + cosign + gitsign (same installer as tssc-setup; repo setup.sh passes --skip-workstation-tools to tssc).
 # The upstream installer downloads CLIs from the RHTAS client-server Route; run after 01–07 so parallel
 # tssc-setup is more likely to have deployed trusted-artifact-signer first.

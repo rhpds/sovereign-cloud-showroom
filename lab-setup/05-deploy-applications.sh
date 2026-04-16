@@ -110,50 +110,7 @@ deploy_to_cluster() {
     return 0
 }
 
-# QUAY_USER / QUAY_URL for module-03 and attendees (~/.bashrc); route may appear shortly after apply.
-configure_quay_env_in_bashrc() {
-    local ctx=local-cluster
-    if ! context_exists "$ctx"; then
-        warning "Skipping QUAY_* in ~/.bashrc: context '$ctx' not in kubeconfig"
-        return 0
-    fi
-    if ! oc --context="$ctx" whoami &>/dev/null; then
-        warning "Skipping QUAY_* in ~/.bashrc: not authorized on $ctx"
-        return 0
-    fi
-
-    local max_wait=120
-    local waited=0
-    local host=""
-    while [ "$waited" -lt "$max_wait" ]; do
-        host=$(oc --context="$ctx" get route quay-quay -n quay -o jsonpath='{.spec.host}' 2>/dev/null || true)
-        if [ -n "$host" ]; then
-            break
-        fi
-        sleep 5
-        waited=$((waited + 5))
-    done
-
-    if [ -z "$host" ]; then
-        warning "Route quay-quay not found in namespace quay on $ctx — QUAY_URL not added to ~/.bashrc (add manually when Quay is ready)"
-        return 0
-    fi
-
-    local quay_url="$host"
-    quay_url="${quay_url#https://}"
-    quay_url="${quay_url#http://}"
-
-    touch "${HOME}/.bashrc" 2>/dev/null || true
-    if [ -f "${HOME}/.bashrc" ]; then
-        sed -i '/^export QUAY_USER=/d' "${HOME}/.bashrc"
-        sed -i '/^export QUAY_URL=/d' "${HOME}/.bashrc"
-    fi
-    echo 'export QUAY_USER=quayadmin' >>"${HOME}/.bashrc"
-    echo "export QUAY_URL=\"${quay_url}\"" >>"${HOME}/.bashrc"
-    export QUAY_USER=quayadmin
-    export QUAY_URL="${quay_url}"
-    log "✓ QUAY_USER and QUAY_URL written to ~/.bashrc (QUAY_URL=${quay_url})"
-}
+# QUAY_USER / QUAY_URL for module-03 (~/.bashrc): see configure-quay-bashrc.sh (also run at end of run-all-setup.sh).
 
 # Start a deploy in the background from the MAIN shell (never use $(...) here). Command substitution
 # runs a subshell that exits right after returning the PID; background children can then lose their
@@ -217,7 +174,8 @@ if context_exists aws-us && [ "${EC_AWS:-1}" != "0" ]; then
 fi
 
 log ""
-configure_quay_env_in_bashrc
+chmod +x "$SCRIPT_DIR/configure-quay-bashrc.sh"
+bash "$SCRIPT_DIR/configure-quay-bashrc.sh"
 
 log ""
 log "========================================================="

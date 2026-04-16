@@ -2,6 +2,8 @@
 
 = Assurance
 
+====
+
 *Sovereignty isn’t just about control — it’s about confidence*
 
 Confidence that your applications and clusters operate exactly as intended, fully compliant with regulations, security standards, and internal policies no matter where they run.
@@ -13,7 +15,6 @@ Without robust assurance, even the most advanced cloud native environments carry
 So let's get practical in our example of an EMEA environment and a US environment and observe, audit, police and manage our clusters and application applications. We will start by looking at the security, compliance and environment insights that we can get from Red Hat Advanced Cluster Security for Kubernetes (RHACS).
 
 [[security-and-environment-insights]]
-
 == Security and Environment Insights
 
 **First let's review the basics of Red Hat Advanced Cluster Security.**

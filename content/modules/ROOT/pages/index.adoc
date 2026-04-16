@@ -61,46 +61,9 @@ The environment has also already been pre-configured for you with the following 
 ** *OpenShift AI*: the console for building and training AI models via Jupyter notebooks and specialized accelerators
 ** *Terminal*: command line access to the OpenShift environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
 
-=== Verify contexts and clusters
-
-First, let's verify that the contexts and clusters are configured correctly.
-
-*Procedure*
-
-[start=1]
-. Switch to the *Bastion* tab, located on the right side of the screen.
-. Verify that both contexts appear:
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc config get-contexts
-----
-+
-.**OUTPUT**
-[source,sh]
-----
-[lab-user@bastion ~]$ oc config get-contexts
-CURRENT   NAME            CLUSTER         AUTHINFO              NAMESPACE
-          aws-us          aws-us          aws-us-admin
-*         local-cluster   local-cluster   local-cluster-admin
-----
-+
-Now you are able to switch between contexts as needed.
-
-. Make sure you are using the local cluster context before continuing.
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc config use-context local-cluster
-----
-+
-IMPORTANT: You will need to switch between contexts as needed throughout the lab. Please ensure you have access to both clusters before proceeding. Otherwise contact the instructor.
-
-=== Install insecure applications while you work on Module 1
+=== Install Insecure Applications While You Work on Module 1
 
 We are going to deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
-
-The setup script configures required bastion environment variables (including RHACS client settings) before running the rest of the install. This will also deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
 
 *Procedure*
 
