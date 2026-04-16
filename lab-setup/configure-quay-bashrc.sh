@@ -52,7 +52,8 @@ discover_quay_host() {
             return 0
         fi
     done
-    host=$(oc --context="$ctx" get routes -n quay -o jsonpath='{.items[0].spec.host}' 2>/dev/null || true)
+    # Prefer registry route by name (items[0] can be quay-quay-builder depending on API order)
+    host=$(oc --context="$ctx" get routes -n quay -o jsonpath='{.items[?(@.metadata.name=="quay-quay")].spec.host}' 2>/dev/null || true)
     if [ -n "$host" ]; then
         echo "$host"
         return 0
