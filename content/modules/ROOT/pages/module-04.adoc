@@ -86,7 +86,7 @@ image::04-openshift-ai-dashboard-06.png[Jupyter Notebook Server Running, width=1
 
 image::04-ai.png[Jupyter Notebook, width=100%, link=self, window=blank]
 
-. Run the *Python Artificial Intelligence Projects for Beginners* sample from this https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners[repository] (`Student performance.ipynb` and the CSV data files in the same folder) in your workbench:
+. Next, you will run the *Python Artificial Intelligence Projects for Beginners* sample from this https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners[repository] (`Student performance.ipynb` and the CSV data files in the same folder) in your workbench:
 
 .. Open a terminal: from the *Launcher* (or the *File* menu), choose *New* → *Terminal*.
 
@@ -94,19 +94,18 @@ image::04-ai.png[Jupyter Notebook, width=100%, link=self, window=blank]
 +
 [source,bash]
 ----
-git clone --depth 1 https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git
+git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git
 ----
 
 .. In the Jupyter *file browser* (folder icon or Jupyter logo), open *Python-Artificial-Intelligence-Projects-for-Beginners*, then double-click *Student performance.ipynb* to open it.
 
 .. Run the notebook: menu *Run* → *Run All Cells*, or run each cell in order with *Shift+Enter*.
 
-.. If a cell fails with `ModuleNotFoundError`, install the missing packages in the terminal (adjust names to match the error), for example:
+You should see the output of the notebook in the terminal, along with the final plot of the student performance.
 +
-[source,bash]
-----
-pip install --user pandas scikit-learn matplotlib seaborn
-----
+image::04-ai-01.png[Jupyter Notebook Output, width=100%, link=self, window=blank]
++
+
 
 
 [[module-conclusion]]
