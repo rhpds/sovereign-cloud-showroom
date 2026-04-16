@@ -4,161 +4,118 @@
 
 [[sovereign-ai-overview]]
 
-== Sovereign AI: Bringing Intelligence to Your Data
+== Sovereign AI: Bringing AI Intelligence to Your Data
 
-**AI Sovereignty** represents a critical evolution in how organizations approach artificial intelligence and machine learning. In an era where data privacy regulations are tightening, geopolitical tensions are reshaping technology supply chains, and organizations face increasing pressure to maintain control over their intellectual property, sovereign AI enables enterprises to build, train, and deploy AI models within their own controlled infrastructure—ensuring data never leaves your jurisdiction, models remain under your governance, and compliance requirements are met from the ground up.
+**AI Sovereignty** means keeping your data, models, and AI workflows under your own control—so data stays within your organization and meets your compliance needs.
 
-Traditional AI approaches often require sending sensitive data to external cloud providers, relying on third-party model training services, or depending on proprietary platforms that limit your ability to customize and control your AI infrastructure. This creates significant risks: data sovereignty violations, regulatory non-compliance, intellectual property exposure, and vendor lock-in that can limit your strategic flexibility.
+Most AI solutions require sending sensitive data to outside services or cloud providers, risking privacy, security, and vendor lock-in.
 
-Red Hat OpenShift AI addresses these challenges by enabling you to run AI workloads on-premises or in your own cloud environments, bringing compute power directly to where your data resides. This approach ensures that:
+With Red Hat OpenShift AI, you can run AI tasks in your own infrastructure or private cloud. This keeps your data local, protects your intellectual property, and helps you meet regulations, while avoiding extra costs from data transfers and cloud service fees.
 
-* **Data Residency**: Your training data, models, and inference workloads remain within your geographic boundaries and infrastructure
-* **Regulatory Compliance**: You maintain full control over data handling, meeting GDPR, HIPAA, and other regional compliance requirements
-* **Intellectual Property Protection**: Your proprietary models and data remain under your direct control, reducing exposure to external parties
-* **Operational Autonomy**: You can operate independently of external AI service providers, adapting to changing business and regulatory needs
-* **Cost Optimization**: By bringing AI compute to your data, you reduce data transfer costs and avoid vendor lock-in pricing models
+In this module, you’ll install Red Hat OpenShift AI and set up a DataScienceCluster so you can use Jupyter notebooks, experiment with a simple workbook, and see how to deploy AI models—all while keeping your data and models secure and under your control.
 
-In this module, you will install Red Hat OpenShift AI and configure a DataScienceCluster that enables data scientists and developers to work with Jupyter notebooks, build a basic workbook, and understand how to deploy AI models—all to bring you to your data while maintaining sovereignty over said data and infrastructure.
+[[exploring-openshift-ai-dashboard]]
+== Exploring the OpenShift AI Dashboard
 
-[[openshift-ai-installation]]
+With OpenShift AI installed and the DataScienceCluster configured, data scientists can now access the OpenShift AI dashboard using all of the same systems and platforms that we've previously configured. 
 
-== Installing Red Hat OpenShift AI
-
-Before data scientists can begin working with OpenShift, we need to install it.
-
-[[install-openshift-ai-operator]]
-
-=== Install OpenShift AI Operator
-
-The first script installs the Red Hat OpenShift AI Operator, which provides the foundational platform for running AI workloads on OpenShift.
+Let's start by accessing the OpenShift AI dashboard and move on to create a run a simple python notebook.
 
 *Procedure*
-
-. Switch to the *Bastion* tab on the right and execute the following command:
+. Access the OpenShift AI dashboard by click on the *OpenShift AI* tab in the right panel.
 +
-[source,sh,role=execute]
-----
-cd ~/svc-lab/ai-setup && ./setup.sh
-----
-
-. Verify the installation completed successfully. You should see output indicating:
+[NOTE]
+====
+You may need to log in. If you already logged in to the OpenShift Console, you will be automatically logged in to the OpenShift AI dashboard.
+====
 +
-[source,sh]
-----
-[SETUP]
-[SETUP] Retrieving OpenShift AI access information...
-[SETUP]
-[SETUP] =========================================================
-[SETUP] OpenShift AI Access Information
-[SETUP] =========================================================
-[SETUP] Dashboard URL: https://rhods-dashboard-redhat-ods-applications.apps.cluster-gk5g4.dynamic.redhatworkshops.io
-[SETUP] Username: admin
-[SETUP] Password: OpenShift admin password
-[SETUP] =========================================================
-[SETUP]
-----
-
-. Make sure you have access to the OpenShift AI dashboard before proceeding.
-+
-At the end of the script output, note the access information that will be displayed. This includes:
-
-* *Dashboard URL* (will be available after DataScienceCluster is created)
-* *Username*: `admin`
-* *Password*: `{openshift_cluster_admin_password}`
-
-. Verify the installation by checking the DataScienceCluster status, dashboard route, and pods:
-+
-[source,sh,role=execute]
-----
-oc get datasciencecluster default-dsc -n redhat-ods-applications
-oc get route rhods-dashboard -n redhat-ods-applications 2>/dev/null || echo "Route not yet available"
-oc get pods -n redhat-ods-applications | grep -i dashboard
-----
-+
-You should see:
-
-* DataScienceCluster status showing `Ready`
-* Dashboard route named `rhods-dashboard`
-* Dashboard pods (typically named `rhods-dashboard-*`) in `Running` status
-+
-NOTE: The dashboard runs with multiple replicas for high availability, so you may see 2 or more dashboard pods. If components are not ready, wait a few minutes and run the command again.
-
-[[jupyter-notebooks-access]]
-
-== Accessing Jupyter Notebooks
-
-With OpenShift AI installed and the DataScienceCluster configured, data scientists can now access Jupyter notebooks through the OpenShift AI dashboard. The workbenches component provides a self-service environment where users can create and manage Jupyter notebook servers.
-
-*Procedure*
-
-. Open the OpenShift AI Dashboard using the URL provided at the end of the installation script (or retrieve it with):
-+
-[source,sh,role=execute]
-----
-oc get route rhods-dashboard -n redhat-ods-applications -o jsonpath='{.spec.host}'; echo
-----
-
 . Log in to the dashboard using:
 * Username: `admin`
 * Password: {openshift_cluster_admin_password}
 +
-
 . Once logged in, you'll see the OpenShift AI dashboard home page:
 +
 image::04-openshift-ai-dashboard-01.png[OpenShift AI Dashboard Login, width=100%, link=self, window=blank]
 
-. Navigate to the *Applications* -> *Explore* section to see available applications that can be added to your cluster:
+. Click on the Hamburger bar in the top left and navigate to the *Applications* -> *Explore* section. Here you can see the available applications that can be added to your cluster.
+.
+image::04-openshift-ai-dashboard-02.png[OpenShift AI Applications View, width=100%, link=self, window=blank]
++
+. Next, navigate to the *AI Hub* -> *Deployments* section.
 +
 image::04-openshift-ai-dashboard-03.png[OpenShift AI Applications View, width=100%, link=self, window=blank]
++
+NOTE:
+====
+GPUs are expensive, so unfortunately we did not deploy a model for you to review. However, they can be managed via the OpenShift AI dashboard in the AI Hub.
+====
++
 
-. To create a Jupyter notebook server:
-.. Click on *Applications* -> *Enabled* -> *Start basic workbench*
-.. Click *Create workbench*
+[[deploying-a-jupyter-notebook]]
+== Deploying a Jupyter Notebook
+
+Let's create a Jupyter notebook server to explore the OpenShift AI dashboard.
+
+*Procedure*
+. To create a Jupyter notebook server, click on *Applications* -> *Enabled* -> *Start basic workbench*
 +
 image::04-openshift-ai-dashboard-04.png[Create Jupyter Workbench, width=100%, link=self, window=blank]
 
 . Configure your workbench:
 .. Select a notebook image ("Jupyter | Minimal | CPU | Python 3.12 | 2025.2")
 +
-image::04-openshift-ai-dashboard-05.png[Configure Jupyter Workbench, width=100%, link=self, window=blank]
-+
-
 [IMPORTANT]
 ====
 Notice the accelerators location that are not available for the notebook image. If your cluster had access to GPU, you would be able to select the GPU accelerator. You can also use environment variables to configure access to your storage/databases
 ====
-
 +
-.. Click *Create* to launch your notebook server
+image::04-openshift-ai-dashboard-045.png[Configure Jupyter Workbench, width=100%, link=self, window=blank]
 +
-
+image::04-openshift-ai-dashboard-05.png[Configure Jupyter Workbench, width=100%, link=self, window=blank]
++
+.. Click *Start Workbench* to launch your notebook server
++
+image::04-openshift-ai-dashboard-06.png[Start Workbench, width=100%, link=self, window=blank]
 +
 . Once your notebook server is running, click *Open in a new tab* to access your Jupyter environment (if you get prompted to log in, use Username: `admin` and Password: `{openshift_cluster_admin_password}`):
 +
 image::04-openshift-ai-dashboard-06.png[Jupyter Notebook Server Running, width=100%, link=self, window=blank]
-
++
 . Once your notebook server is running, click *Open* to access your Jupyter environment.
-. Your Jupyter notebook interface will open in a new tab:
-.. In the Jupyter notebook interface, you can create new notebooks, upload files, or browse existing projects:
-. Create a new Python notebook by clicking *Python 3.12 Notebook* 
+. Your Jupyter notebook interface opens in a new tab. You can create notebooks, upload files, use a terminal, or open an existing `.ipynb` file.
 
 image::04-ai.png[Jupyter Notebook, width=100%, link=self, window=blank]
 
-> Your new notebook will open, ready for you to write and execute code. 
+. Run the *Python Artificial Intelligence Projects for Beginners* sample from this https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners[repository] (`Student performance.ipynb` and the CSV data files in the same folder) in your workbench:
 
-Try to get one of the examples to run in the environment -> https://github.com/PacktPublishing/Python-Artificial-Intelligence-Projects-for-Beginners/tree/master/Chapter01
+.. Open a terminal: from the *Launcher* (or the *File* menu), choose *New* → *Terminal*.
 
-You can copy the code directly into the notebook or you can upload a file from your local machine.
+.. Clone the repository into your workbench (one block to copy and paste):
++
+[source,bash]
+----
+git clone --depth 1 https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git
+----
 
-TIP: You can install additional Python packages using pip in a code cell
+.. In the Jupyter *file browser* (folder icon or Jupyter logo), open *Python-Artificial-Intelligence-Projects-for-Beginners*, then double-click *Student performance.ipynb* to open it.
+
+.. Run the notebook: menu *Run* → *Run All Cells*, or run each cell in order with *Shift+Enter*.
+
+.. If a cell fails with `ModuleNotFoundError`, install the missing packages in the terminal (adjust names to match the error), for example:
++
+[source,bash]
+----
+pip install --user pandas scikit-learn matplotlib seaborn
+----
+
 
 [[module-conclusion]]
 
 == Bringing Intelligence to Your Data
 
-Red Hat OpenShift AI enables you to bring your data scientists and AI platforms directly to where your data resides—within the networks and infrastructure you trust. By deploying OpenShift AI on-premises or in your sovereign cloud environment, you maintain complete control over your data, models, and AI workloads while enabling your teams to innovate and build powerful machine learning solutions.
+Red Hat OpenShift AI lets you run your AI tools and data science projects right where your data lives, inside your trusted infrastructure. By using OpenShift AI on-premises or in your own cloud, you keep control of your data and AI workloads.
 
-This approach ensures that your sensitive data never leaves your trusted infrastructure, your AI models remain under your governance, and your organization can meet regulatory compliance requirements without compromise. Whether you're training models on proprietary datasets, deploying inference workloads, or collaborating across teams, OpenShift AI provides the foundation for sovereign AI operations that align with your security, compliance, and operational requirements.
+With this setup, your sensitive data stays private, your models are secure, and you can easily meet compliance needs. OpenShift AI makes it easy to build, train, and use AI while keeping everything under your control.
 
 *You've successfully brought intelligence to your data—keeping it safe, secure, and sovereign.*
 

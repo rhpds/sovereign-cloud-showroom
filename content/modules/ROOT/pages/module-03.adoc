@@ -220,7 +220,7 @@ Root status:
 }
 ----
 
-In sovereign cloud environments, cryptographic signing ensures that only approved, verified container images can be deployed to your infrastructure. This maintains control over your software supply chain and enables compliance with regulatory requirements for software provenance and integrity.
+Cryptographic signing lets you control which container images can run in your environment, making sure only trusted, verified images are used.
 
 `cosign` will be interacting with the image in our private registry, therefore we need to log in to Quay.
 
@@ -286,30 +286,26 @@ Enter verification code:
 ----
 +
 NOTE: As mentioned above, the signing process ties an identity (an OIDC identity, to be specific) to the signature. The signing certificate is issued on demand, but *only issued if an OIDC identity proof can be established*.
-+
-In this example, the "OAuth2 browser-based flow" is used. In other words, you will authenticate to the OIDC system by user and password via a browser login.
-+
-TIP: As an alternative to the browser flow, you can use direct access grants (password grant) to get an OIDC token first, then pass it to cosign with `--identity-token=$OIDC_TOKEN`. See the example later in this module for details.
 
-. Copy the URL and paste it in a new browser window or tab and log in—use one of the following user credentials:
++
+. Copy the URL and paste it in a new browser window or tab and log in. Use the following user credentials:
 +
 [cols="2,2"]
 |===
 | *Username:* | *jdoe@redhat.com*
 | *Password:* | *secure*
 |===
-+
-NOTE: You can use any of the created users (jdoe, user1, or admin) to sign images. The username can be entered as the username (e.g., `user1`) or email address (e.g., `user1@demo.redhat.com`).
+
 +
 image::11-signing-sso-login.png[keycloak login]
 +
 image::11-signing-successcode.png[copy the success code]
 +
-IMPORTANT: Make sure to copy the whole code, as it is longer than the text box.
+TIP: Make sure to copy the whole code, as it is longer than the text box.
 +
 NOTE: You may have to run `rm -rf ~/.sigstore` if you get a cache error.
 
-. Enter verification code:
+. Copy the verification code and paste it in the terminal:
 +
 [.console-output]
 [source,bash,subs="+macros,+attributes"]
@@ -329,7 +325,7 @@ Pushing signature to: quay-l2ktc.apps.cluster-l2ktc.l2ktc.sandbox75.opentlc.com/
 +
 *SUCCESS!*
 +
-With one command, you have signed the container image and pushed the container image to the registry. Furthermore, the signing event and its metadata have been recorded in the *Rekor* transparency log: `tlog entry created with index: 1`.
+With one command, you have signed the container image in the quay registry. Furthermore, the signing event and its metadata have been recorded in the *Rekor* transparency log: `tlog entry created with index: 1`.
 
 . To check, we can again use `cosign tree`. Run the following command in the terminal:
 +
@@ -346,58 +342,11 @@ cosign tree $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
    └── 🍒 sha256:c20e35a851fe1f348be662e94f3095edfe85955d1d7b9ee8de2afbfc3c94f7e2
 ----
 +
-> We can also log in to Quay[{quay_console_url}] using the Quay credentials:
-+
-[cols="2,2"]
-|===
-| *Quay Console Username:* | {quay_admin_username}
-| *Quay Console Password:* | {quay_admin_password}
-|===
+> We can also view the signature in the Quay console.
 +
 Quay recognizes the `cosign` image signature, too!
 +
 image::11-quay-signed-image.png[link=self, window=blank, width=100%]
-
-You might be wondering how a pipeline task authenticates itself, since it can't open a browser to log in. Trusted Artifact Signer / Sigstore (including the cosign tool) doesn't authenticate the user directly. Instead, it relies on the OIDC system to authenticate the request before issuing a signing certificate. This allows the full flexibility of OIDC systems for authentication.
-
-For example, GitHub Actions and GitLab CI/CD can pass the OIDC identity of the pipeline runner via OIDC tokens into the pipeline.
-
-In general, continuous integration (CI) systems focus on providing the identity of the build or deployment environment rather than the personal identity of the user who triggered it. This helps maintain least privilege and ensures reproducibility. However, depending on your CI setup and requirements, you can leverage the flexibility of OIDC to meet your specific needs.
-
-== Deploy Your Signed Image and Verify it
-
-.Procedure
-+
-. Create the target namespace (project) if it does not exist, then deploy the image from Quay.
-Use `--image=` so `oc` treats the reference as a registry image, not a local file or template.
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc new-project patient-portal-frontend 2>/dev/null || oc project patient-portal-frontend
-oc new-app --name patient-portal-frontend --image "$QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0" -n patient-portal-frontend
-----
-+
-If the cluster cannot pull from your Quay registry, create a pull secret in this namespace and link it to the `default` service account (same credentials you use for `podman login`).
-
-. Deploy the signed image to your cluster. Run the following command in the terminal:
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc apply -f ~/demo-applications/manifests/patient-portal-frontend-signed.yaml -n patient-portal-frontend
-----
-
-. Verify the image has been deployed. Run the following command in the terminal:
-
-
-
-== Module Cleanup
-
-Once you're done with this module, please execute the following command to reset the content, variables, repositories, etc. for the next user:
-
-[source,sh,subs="attributes",role=execute]
-----
-curl -fsSL https://raw.githubusercontent.com/redhat-tssc-tmm/security-roadshow/main/cleanup_tssc-module.sh | bash -s {quay_admin_username} {quay_admin_password}
-----
 
 *You're crushing it!*
 
