@@ -110,7 +110,8 @@ log "========================================================="
 log "Quay registry env for ~/.bashrc (module-03 podman login)"
 log "========================================================="
 chmod +x "$SCRIPT_DIR/configure-quay-bashrc.sh"
-bash "$SCRIPT_DIR/configure-quay-bashrc.sh" || true
+# Short wait here — Quay may still be rolling out; a longer pass runs after workstation tools and from setup.sh.
+QUAY_BASHRC_MAX_WAIT="${QUAY_BASHRC_MAX_WAIT:-180}" bash "$SCRIPT_DIR/configure-quay-bashrc.sh" || true
 log ""
 
 # Podman + cosign + gitsign (same installer as tssc-setup; repo setup.sh passes --skip-workstation-tools to tssc).
@@ -131,6 +132,15 @@ if bash "$SCRIPT_DIR/$WORKSTATION_SCRIPT"; then
 else
     error "✗ Final step failed: $WORKSTATION_SCRIPT"
 fi
+log ""
+
+# Quay Route often appears after deploy + other operators; retry ~/.bashrc after full lab pipeline.
+log "========================================================="
+log "Quay registry env for ~/.bashrc (final pass after workstation tools)"
+log "========================================================="
+oc config use-context local-cluster >/dev/null 2>&1 || true
+chmod +x "$SCRIPT_DIR/configure-quay-bashrc.sh"
+bash "$SCRIPT_DIR/configure-quay-bashrc.sh" || true
 log ""
 
 # Restore original context if it was set

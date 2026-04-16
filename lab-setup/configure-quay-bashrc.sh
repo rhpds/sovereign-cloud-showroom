@@ -1,6 +1,9 @@
 #!/bin/bash
 # Writes QUAY_USER and QUAY_URL to ~/.bashrc for module-03 (podman login https://$QUAY_URL -u $QUAY_USER).
 # Idempotent: removes prior QUAY_* export lines before appending. Safe to re-run after Quay becomes ready.
+#
+# Quay's Route often appears well after manifests apply; increase wait with QUAY_BASHRC_MAX_WAIT (seconds).
+# Override cluster context with QUAY_OC_CONTEXT if kubeconfig has no local-cluster.
 
 set -uo pipefail
 
@@ -20,31 +23,67 @@ context_exists() {
     oc config get-contexts -o name 2>/dev/null | sed 's|^context/||' | grep -qx "$1"
 }
 
-main() {
-    local ctx=local-cluster
-    if ! context_exists "$ctx"; then
-        warning "Skipping QUAY_* in ~/.bashrc: context '$ctx' not in kubeconfig"
+# Prefer QUAY_OC_CONTEXT, then local-cluster, then any context that can talk to the cluster.
+resolve_context() {
+    local preferred="${QUAY_OC_CONTEXT:-local-cluster}"
+    if context_exists "$preferred" && oc --context="$preferred" whoami &>/dev/null; then
+        echo "$preferred"
         return 0
     fi
-    if ! oc --context="$ctx" whoami &>/dev/null; then
-        warning "Skipping QUAY_* in ~/.bashrc: not authorized on $ctx"
+    local cur
+    cur=$(oc config current-context 2>/dev/null || true)
+    if [ -n "$cur" ] && oc --context="$cur" whoami &>/dev/null; then
+        warning "Using OpenShift context '$cur' (preferred '${preferred}' missing or not logged in)"
+        echo "$cur"
         return 0
     fi
+    echo ""
+    return 1
+}
 
-    local max_wait=120
+# Try common Quay operator route names, then any route in namespace quay.
+discover_quay_host() {
+    local ctx="$1"
+    local name host
+    for name in quay-quay quay registry; do
+        host=$(oc --context="$ctx" get route "$name" -n quay -o jsonpath='{.spec.host}' 2>/dev/null || true)
+        if [ -n "$host" ]; then
+            echo "$host"
+            return 0
+        fi
+    done
+    host=$(oc --context="$ctx" get routes -n quay -o jsonpath='{.items[0].spec.host}' 2>/dev/null || true)
+    if [ -n "$host" ]; then
+        echo "$host"
+        return 0
+    fi
+    return 1
+}
+
+main() {
+    local ctx
+    ctx=$(resolve_context) || {
+        warning "Skipping QUAY_* in ~/.bashrc: no usable OpenShift context (log in with oc login or set QUAY_OC_CONTEXT)"
+        return 0
+    }
+
+    local max_wait="${QUAY_BASHRC_MAX_WAIT:-600}"
+    local interval="${QUAY_BASHRC_POLL_INTERVAL:-10}"
     local waited=0
     local host=""
+
+    log "Waiting up to ${max_wait}s for a Quay Route in namespace quay (context: $ctx)..."
     while [ "$waited" -lt "$max_wait" ]; do
-        host=$(oc --context="$ctx" get route quay-quay -n quay -o jsonpath='{.spec.host}' 2>/dev/null || true)
-        if [ -n "$host" ]; then
+        if host=$(discover_quay_host "$ctx"); then
             break
         fi
-        sleep 5
-        waited=$((waited + 5))
+        sleep "$interval"
+        waited=$((waited + interval))
     done
 
     if [ -z "$host" ]; then
-        warning "Route quay-quay not found in namespace quay on $ctx — QUAY_URL not added to ~/.bashrc (re-run this script when Quay is ready)"
+        warning "No Quay route found in namespace quay on context $ctx — QUAY_URL not added to ~/.bashrc"
+        warning "When Quay is ready, run: bash \"\${PROJECT_ROOT:-.}/lab-setup/configure-quay-bashrc.sh\""
         return 0
     fi
 

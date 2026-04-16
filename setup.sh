@@ -130,6 +130,12 @@ failed=0
 if [[ "$failed" -eq 0 ]]; then
   SETUP_ALL_OK=1
   echo -e "${GREEN}All three setup scripts completed successfully.${NC}"
+  # Quay may finish rolling out after lab-setup returns; one more pass for QUAY_* in ~/.bashrc (module-03).
+  _quay_hook="${REPO_ROOT}/lab-setup/configure-quay-bashrc.sh"
+  if [[ -x "$_quay_hook" ]] || [[ -f "$_quay_hook" ]]; then
+    chmod +x "$_quay_hook" 2>/dev/null || true
+    bash "$_quay_hook" || true
+  fi
   exit 0
 fi
 
