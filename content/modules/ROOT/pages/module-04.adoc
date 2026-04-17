@@ -22,6 +22,7 @@ With OpenShift AI installed and the DataScienceCluster configured, data scientis
 Let's start by accessing the OpenShift AI dashboard and move on to create a run a simple python notebook.
 
 *Procedure*
+
 . Access the OpenShift AI dashboard by click on the *OpenShift AI* tab in the right panel.
 +
 [NOTE]
@@ -49,7 +50,6 @@ image::04-openshift-ai-dashboard-03.png[OpenShift AI Applications View, width=10
 ====
 GPUs are expensive, so unfortunately we did not deploy a model for you to review. However, they can be managed via the OpenShift AI dashboard in the AI Hub.
 ====
-+
 
 [[deploying-a-jupyter-notebook]]
 == Deploying a Jupyter Notebook
@@ -57,8 +57,9 @@ GPUs are expensive, so unfortunately we did not deploy a model for you to review
 Let's create a Jupyter notebook server to explore the OpenShift AI dashboard.
 
 *Procedure*
+
 . To create a Jupyter notebook server, click on *Applications* -> *Enabled* -> *Start basic workbench*
-+
+
 image::04-openshift-ai-dashboard-04.png[Create Jupyter Workbench, width=100%, link=self, window=blank]
 
 . Configure your workbench:
@@ -102,11 +103,8 @@ git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-
 .. Run the notebook: menu *Run* → *Run All Cells*, or run each cell in order with *Shift+Enter*.
 
 You should see the output of the notebook in the terminal, along with the final plot of the student performance.
-+
+
 image::04-ai-01.png[Jupyter Notebook Output, width=100%, link=self, window=blank]
-+
-
-
 
 [[module-conclusion]]
 
