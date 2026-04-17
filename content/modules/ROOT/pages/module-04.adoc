@@ -93,7 +93,7 @@ image::04-ai.png[Jupyter Notebook, width=100%, link=self, window=blank]
 
 .. Clone the repository into your workbench (one block to copy and paste):
 +
-[source,bash]
+[source,sh,subs="attributes",role=execute]
 ----
 git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git
 ----
