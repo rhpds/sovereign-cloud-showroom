@@ -29,13 +29,9 @@ Let's start by accessing the OpenShift AI dashboard and move on to create a run 
 ====
 You may need to log in. If you already logged in to the OpenShift Console, you will be automatically logged in to the OpenShift AI dashboard.
 ====
-
-=== OpenShift AI Console Access
-
-Your OpenShift AI Console is also available in the right panel. In case you want to open it in another window it is here: {rhoai_dashboard}[window=blank]
-
++
 Administrator login credentials:
-
++
 [cols="1,1"]
 |===
 | *OpenShift AI Console Username:* | {openshift_cluster_admin_username}
