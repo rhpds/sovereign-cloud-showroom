@@ -7,7 +7,6 @@
 This requires a robust platform that can be used to deploy and manage your clusters, containers, virtual machines, and AI applications, while providing hardened authorization, authentication, data controls, encryption, vulnerability management, and more.
 
 [[multi-env-clusters]]
-
 == Multi-Environment Red Hat OpenShift Cluster and Virtual Machine Creation and Management
 
 Creating and managing clusters is the first step in building a sovereign cloud. When you control your clusters—from setup to daily operations—you decide where your workloads and data live, set your own policies, and stay compliant. This way, you can quickly adapt to regulations, keep your business flexible, and avoid relying on outside providers. With flexible management of clusters and virtual machines, you can build a cloud that fits your security and compliance needs from the start.

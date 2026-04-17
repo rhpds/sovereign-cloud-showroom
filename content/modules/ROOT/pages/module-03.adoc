@@ -11,7 +11,6 @@
 Ingest, build, sign, attest and secure your software supply chain. Take control by working hands-on with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
 
 [[setup]]
-
 == Installation and Setup
 
 First, we need to set up the applications for this module.

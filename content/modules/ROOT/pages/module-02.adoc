@@ -352,7 +352,6 @@ NOTE: After a few seconds, you can see the pod is deleted and recreated. In your
 You have successfully stopped yourself from downloading malicious packages! However, the security investigative process continues, as you have now raised a flag that must be triaged! You will triage our violations after you look at deploy time policies.
 
 [[violations-reporting-audit-compliance]]
-
 == Violations and Reporting for Audit and Compliance
 
 Event audits are crucial not just for security best practices, but also to meet regulatory requirements and uphold data sovereignty standards that can vary by region. Tailoring security policies and audit events to regional needs helps ensure compliance with local laws and regulations, giving your organization greater control and transparency over your workloads and security posture.
@@ -373,12 +372,6 @@ image::acs-violations-02.png[link=self, window=blank, width=100%, Violations Men
 If configured properly, each violation record should be pushed to a Security Information and Event Management (SIEM) application and is available to be retrieved via the API. The forensic data shown in the UI is recorded, including the timestamp, process user IDs, process arguments, process ancestors, and enforcement action.
 ====
 
-=== Want More Security Modules?
-
-To dive deeper into software supply chain responsibilities, workload vulnerability management, and Project Hummingbird, please see:
-
-xref:module-05.adoc#understanding-your-responsibilities-for-software-supply-chain-management[Learn more about Software Supply Chain Management and Project Hummingbird in Supplementary Modules]
-
-**Otherwise, Hey! Great job! Proceed to Module 3.**
+**Hey! Great job! Proceed to Module 3.**
 
 image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3ODhkZThkZXVxb2twdHloazAzc2VhNWJpeWowenRpeTJoczY3MTAyZyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/RIjVnmAtOD4l4c2Ert/giphy.gif[Fun celebration, width=400]
