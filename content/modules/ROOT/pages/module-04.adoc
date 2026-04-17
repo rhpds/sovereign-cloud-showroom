@@ -63,9 +63,9 @@ Let's create a Jupyter notebook server to explore the OpenShift AI dashboard.
 *Procedure*
 
 . To create a Jupyter notebook server, click on *Applications* -> *Enabled* -> *Start basic workbench*
-
++
 image::04-openshift-ai-dashboard-04.png[Create Jupyter Workbench, width=100%, link=self, window=blank]
-
++
 . Configure your workbench:
 .. Select a notebook image ("Jupyter | Minimal | CPU | Python 3.12 | 2025.2")
 +
@@ -88,9 +88,9 @@ image::04-openshift-ai-dashboard-06.png[Jupyter Notebook Server Running, width=1
 +
 . Once your notebook server is running, click *Open* to access your Jupyter environment.
 . Your Jupyter notebook interface opens in a new tab. You can create notebooks, upload files, use a terminal, or open an existing `.ipynb` file.
-
++
 image::04-ai.png[Jupyter Notebook, width=100%, link=self, window=blank]
-
++
 . Next, you will run the *Python Artificial Intelligence Projects for Beginners* sample from this https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners[repository] (`Student performance.ipynb` and the CSV data files in the same folder) in your workbench:
 
 .. Open a terminal: from the *Launcher* (or the *File* menu), choose *New* → *Terminal*.
