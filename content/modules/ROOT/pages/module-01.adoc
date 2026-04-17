@@ -168,8 +168,6 @@ Please notice all of the available options to configure the VM with, these will 
 +
 image::12-vm-finish.png[link=self, window=blank, width=100%, Create VM]
 
-*ADD CONTENT HERE about MIGRATION and VM Analysis tools
-*
 [TIP]
 ====
 *UI or GitOps—The Choice is Yours!*
