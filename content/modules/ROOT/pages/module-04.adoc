@@ -56,7 +56,6 @@ image::04-openshift-ai-dashboard-03.png[OpenShift AI Applications View, width=10
 GPUs are expensive, so unfortunately we did not deploy a model for you to review. However, they can be managed via the OpenShift AI dashboard in the AI Hub.
 ====
 
-
 [[deploying-a-jupyter-notebook]]
 == Deploying a Jupyter Notebook
 
@@ -100,7 +99,6 @@ image::04-ai.png[Jupyter Notebook, width=100%, link=self, window=blank]
 [source,bash,role=execute]
 ----
 git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git
-pip install pandas scikit-learn matplotlib
 ----
 
 .. In the Jupyter *file browser* (folder icon or Jupyter logo), open *Python-Artificial-Intelligence-Projects-for-Beginners*, then double-click *Student performance.ipynb* to open it.
