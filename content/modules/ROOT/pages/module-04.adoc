@@ -67,7 +67,7 @@ Let's create a Jupyter notebook server to explore the OpenShift AI dashboard.
 image::04-openshift-ai-dashboard-04.png[Create Jupyter Workbench, width=100%, link=self, window=blank]
 +
 . Configure your workbench:
-.. Select a notebook image ("Jupyter | Minimal | CPU | Python 3.12 | 2025.2")
+.. Select a notebook image *Jupyter | Data Science | CPU | Python 3.12 | 2025.2*
 +
 [IMPORTANT]
 ====
