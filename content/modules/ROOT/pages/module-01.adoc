@@ -19,9 +19,9 @@ Red Hat Advanced Cluster Management (RHACM) serves as the central control plane 
 
 === Create and Manage Kubernetes Clusters
 
-Red Hat Advanced Cluster Management for Kubernetes (RHACM) simplifies the deployment and management of new OpenShiftclusters. Strategies such as IPI and the Assisted Installer are available, but RHACM takes it a step further, allowing you to deploy new clusters with just a few clicks using the cluster creation wizard.
+Red Hat Advanced Cluster Management for Kubernetes (RHACM) simplifies the deployment and management of new OpenShift clusters. Strategies such as IPI and the Assisted Installer are available, but RHACM takes it a step further, allowing you to deploy new clusters with just a few clicks using the cluster creation wizard.
 
-*For the first excerise, you will deploy a new cluster in the EMEA region so that you will have local, US and EMEA clusters to deploy your applications to.*
+*For the first exercise, you will deploy a new cluster in the EMEA region so that you will have local, US and EMEA clusters to deploy your applications to.*
 
 .Procedure
 . On the top left of the OpenShift Console, click the "Hamburger" drop down and select *Fleet Management -> *Infrastructure* -> *Clusters*
@@ -56,7 +56,7 @@ hcp-emea
 . Select *managed* for the `Cluster Set`
 . Next, select the release image *OpenShift 4.21.0* (or whatever the current 4.21.x release image is).
 . Select *Single replica* for both the *Controller availability policy* and the *Infrastructure availability policy*.
-. Under Aditional Labels enter *location=emea*
+. Under Additional Labels enter *location=emea*
 +
 [source,sh,subs="attributes",role=execute]
 ----
@@ -89,7 +89,7 @@ image::106-create-cluster-nodepools.png[link=self, window=blank, width=100%, Cre
 +
 [NOTE]
 ====
-The next screen allows you to configure storage mappings type to use and it's associated variables. We will leave these as default as these have already been configured on the backend and you do not need to change them.
+The next screen allows you to configure storage mappings type to use and its associated variables. We will leave these as default as these have already been configured on the backend and you do not need to change them.
 ====
 +
 . Click on *Next* to proceed.
@@ -131,7 +131,7 @@ By the end of this exercise, you will:
 * Provision a new Virtual Machine using the RHACM Creation Wizard.
 * Perform Day 2 operations (Stop, Start, Migrate) directly from the multi-cluster view.
 
-NOTE: You might noticed that we have already deployed a Virtual Machine for you called *rhel-webserver* we will leverage this machine in later excersises do not delete or power off as it will affect the other modules. 
+NOTE: You might noticed that we have already deployed a Virtual Machine for you called *rhel-webserver* we will leverage this machine in later exercises do not delete or power off as it will affect the other modules. 
 
 === Deploy Virtual Machines Using the RHACM Console
 
@@ -177,7 +177,6 @@ While this lab demonstrates the graphical capabilities of the RHACM console, Vir
 
 [[container-workloads]]
 === Deploy and Manage Container Workloads via OpenShift GitOps
-
 
 OpenShift GitOps (using Argo CD and RHACM) lets you deploy and manage apps across clusters using Git as your source of truth.
 
@@ -231,10 +230,10 @@ image::03-argoconfig.png[link=self, window=blank, width=100%, ArgoCD Config]
 
 . Click *Add*
 . Select your newly registered ArgoCD server from the *Argo server* dropdown
-. Click *Next*
 +
 image::03-app-gitops.png[link=self, window=blank, width=100%, App GitOps]
-
++
+. Click *Next* to continue to 3. Repository.
 . Under repository types, select the *Git* repository type
 . Enter the URL and select *Create new option* for the Repository URL
 +
@@ -256,7 +255,7 @@ skupper-demo
 ----
 patient-portal
 ----
-. Then click *Next*
+. Then click *Next* to continue to 5. Placement.
 +
 image::03-app-gitops-2.png[link=self, window=blank, width=100%, App ACM GitOps]
 +
@@ -265,21 +264,20 @@ image::03-app-gitops-2.png[link=self, window=blank, width=100%, App ACM GitOps]
 * *Cluster set:* Select `global`
 . Under *Label expressions* click *Add label expression* and select the following
 * *Label:* name
-* *Operator:* equals any off
+* *Operator:* equals any of
 * *Values:* aws-us, local-cluster, emea-cluster
-. Make sure that *Set a limit on the number of clusters selected* is checked
-. Set the number to 3 and click *Next*
+. Uncheck the *Set a limit on the number of clusters selected*.
 +
 [IMPORTANT]
 ====
-Ensure *Cluster* set is set to Global and the label values to be present in the placement rule, otherwise the application will not be deployed to the correct clusters.
+The *Cluster* set needs to be set to Global and the label values to be present in the placement rule, otherwise the application will not be deployed to the correct clusters.
 ====
 +
 . Verify all of the information is correct and click *Submit*.
 
-image::03-app-placement-us.png[link=self, window=blank, width=100%, ACM App Placement US]
-
- . If all steps were followed, you will be able to see the application deployed with all green checkmarks - This might take 15 minutues to complete so feel free to continue to the next module.
+====
+If all steps were followed, you will be able to see the application deployed with all green checkmarks - This might take 15 minutes to complete so feel free to continue to the next module.
+====
 
 image::03-app-complete.png[link=self, window=blank, width=100%, ACM App Placement US]
 
@@ -287,7 +285,7 @@ image::03-app-complete.png[link=self, window=blank, width=100%, ACM App Placemen
 
 *Sovereignty is not just about control — it's about confidence*
 
-Achieving true sovereignty across your cloud environments includes governance and the ability to change as geographic boundaries and governments do. You need automation and flexbile guardrails, as code, to achieve this.
+Achieving true sovereignty across your cloud environments includes governance and the ability to change as geographic boundaries and governments do. You need automation and flexible guardrails, as code, to achieve this.
 
 *RHACM is built for this purpose!*
 
@@ -419,20 +417,20 @@ image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
 GDPR compliance starts with having clearly labeled namespaces. Labels and annotations allow policies to target GDPR-restricted workloads, support audit requirements, and enforce data residency. This policy requires that every EMEA cluster includes two key namespaces: `gdpr-workloads` (fully labeled for compliance) and `data-residency-emea` (for strict EU-only workloads). Proper labeling is essential for demonstrating GDPR compliance to regulators.
 ====
 +
-. Verify that the YAML was added properly and there are no errors.
+. Click "*Create"* and verify that the YAML was added properly and there are no errors.
 +
 image::02-rhacm-yaml-2.png[link=self, window=blank, width=100%]
 +
-. Next, click *Gorvernance* Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
+. Next, click *Governance* Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
 image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
 
-. Verify that the *policy-emea-namespace-compliance* was created. Notice the Redmediation is set to Inform. 
+. Verify that the *policy-emea-namespace-compliance* was created. Notice the Remediation is set to Inform. 
 . Change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
 image::02-rhacm-yaml-4.png[link=self, window=blank, width=100%]
 +
-. It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
+. It will take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
 +
 image::02-rhacm-yaml-5.png[link=self, window=blank, width=100%]
 +
@@ -453,15 +451,4 @@ If you want to deploy more policies to the EMEA cluster, you can do so by follow
 
 * **Automated compliance** — Define and enforce policies as code to meet residency and organizational requirements.
 
-
-
-
-
-
-
-
-
-
-
-
-
+image::https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExaHNuaGJoenozbDg5dnZ6eXNwbmluazg2MDM3c2doMHRybnV0YnJ6bSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/VhWVAa7rUtT3xKX6Cd/giphy.gif[Celebration, width=400, align="center"]

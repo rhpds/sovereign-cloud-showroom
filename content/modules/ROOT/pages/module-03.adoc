@@ -1,4 +1,4 @@
-[technology-supply-chain]]
+[[technology-supply-chain]]
 
 = Technology and Supply Chain
 
@@ -117,7 +117,7 @@ podman push $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
 
 == Signing Your Software
 
-For signing and verification of container images, we'll be using the `cosign` CLI binary, which has already been installed int he terminal tab on the right.
+For signing and verification of container images, we'll be using the `cosign` CLI binary, which has already been installed in the terminal tab on the right.
 
 `cosign` can easily be used in any CI/CD toolchain as we use it here and handles all the communication with the Sigstore / Trusted Artifact Signer services that request certificates, handle the OIDC authentication, store info in the transparency log (Rekor), etc.
 
@@ -285,9 +285,6 @@ Go to the following link in a browser:
 Enter verification code:
 ----
 +
-NOTE: As mentioned above, the signing process ties an identity (an OIDC identity, to be specific) to the signature. The signing certificate is issued on demand, but *only issued if an OIDC identity proof can be established*.
-
-+
 . Copy the URL and paste it in a new browser window or tab and log in. Use the following user credentials:
 +
 [cols="2,2"]
@@ -295,7 +292,8 @@ NOTE: As mentioned above, the signing process ties an identity (an OIDC identity
 | *Username:* | *jdoe@redhat.com*
 | *Password:* | *secure*
 |===
-
++
+NOTE: As mentioned above, the signing process ties an identity (an OIDC identity, to be specific) to the signature. The signing certificate is issued on demand, but *only issued if an OIDC identity proof can be established*.
 +
 image::11-signing-sso-login.png[keycloak login]
 +
@@ -342,9 +340,7 @@ cosign tree $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
    └── 🍒 sha256:c20e35a851fe1f348be662e94f3095edfe85955d1d7b9ee8de2afbfc3c94f7e2
 ----
 +
-> We can also view the signature in the Quay console.
-+
-Quay recognizes the `cosign` image signature, too!
+> We can also view the signature in the Quay console. Head over to the console with username `quayadmin` and password `{quay_admin_password}`. check out the patient-portal-frontend image and you will see the signature.
 +
 image::11-quay-signed-image.png[link=self, window=blank, width=100%]
 

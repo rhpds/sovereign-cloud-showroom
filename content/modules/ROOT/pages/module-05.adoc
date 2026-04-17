@@ -7,10 +7,10 @@
 This page is optional reference and extra hands-on material. It is not part of the four numbered core lab modules. For the main path, complete xref:index.adoc#lab-modules[Modules 1 through 4] in the order listed on the intro page.
 ====
 
-[deploying-more-policies-to-the-emea-cluster]
+[[deploying-more-policies-to-the-emea-cluster]]
 == Deploying MORE Policies to the EMEA Cluster
 
-Lets Apply another policy to the EMEA Cluster. This policy implements **network-level data sovereignty** by creating a NetworkPolicy in the `data-residency-emea` namespace that blocks all egress traffic to external IP addresses. Only cluster-internal communication (RFC 1918 addresses) and DNS resolution are permitted. This ensures that:
+Let's apply another policy to the EMEA Cluster. This policy implements **network-level data sovereignty** by creating a NetworkPolicy in the `data-residency-emea` namespace that blocks all egress traffic to external IP addresses. Only cluster-internal communication (RFC 1918 addresses) and DNS resolution are permitted. This ensures that:
 
 * Workloads in the GDPR-restricted namespace **cannot send data to external endpoints** — whether intentionally (API calls to non-EU services) or accidentally (misconfigured logging, telemetry, or dependency resolution).
 * The only allowed communication is **within the cluster boundary**, which is presumed to be within the EU/EEA geographic region.
@@ -107,11 +107,11 @@ image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
 +
 image::02-rhacm-yaml-6.png[link=self, window=blank, width=100%]
 
-. Next, click Gorvernance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
+. Next, click Governance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
 image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
 
-. Verify that the *policy-emea-network-sovereignty* was created. Notice the Redmediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
+. Verify that the *policy-emea-network-sovereignty* was created. Notice the Remediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
 image::02-rhacm-yaml-7.png[link=self, window=blank, width=100%]
 
@@ -122,7 +122,7 @@ image::02-rhacm-yaml-8.png[link=self, window=blank, width=100%]
 [#deploying-policies-to-the-us-cluster]
 == Deploying Policies to the US Cluster
 
-Now that we have locked down the *hcp-emea* cluster, lets work on locking down the *aws-us* cluster with two Policies. 
+Now that we have locked down the *hcp-emea* cluster, let's work on locking down the *aws-us* cluster with two Policies. 
 
 The National Institute of Standards and Technology (NIST) Special Publication 800-53 is the primary security and privacy controls framework used by US federal agencies and many private sector organizations. Unlike GDPR, which focuses heavily on data residency and individual privacy rights, NIST 800-53 takes a broader systems-security approach — emphasizing access control, audit accountability, boundary protection, and continuous monitoring.
 
@@ -238,11 +238,11 @@ image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
 +
 image::02-rhacm-yaml-9.png[link=self, window=blank, width=100%]
 
-. Next, click Gorvernance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
+. Next, click Governance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
 image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
 
-. Verify that the *policy-us-namespace-compliance* was created. Notice the Redmediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
+. Verify that the *policy-us-namespace-compliance* was created. Notice the Remediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
 image::02-rhacm-yaml-10.png[link=self, window=blank, width=100%]
 
@@ -352,11 +352,11 @@ image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
 +
 image::02-rhacm-yaml-12.png[link=self, window=blank, width=100%]
 
-. Next, click Gorvernance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
+. Next, click Governance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
 image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
 
-. Verify that the *policy-us-audit-logging* was created. Notice the Redmediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
+. Verify that the *policy-us-audit-logging* was created. Notice the Remediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
 image::02-rhacm-yaml-13.png[link=self, window=blank, width=100%]
 
@@ -364,7 +364,7 @@ image::02-rhacm-yaml-13.png[link=self, window=blank, width=100%]
 +
 image::02-rhacm-yaml-14.png[link=self, window=blank, width=100%]
 
-You have now successfully applied policies to your clusters with YAML. Please note that all of these policies can be used via RedHat GitOps making the process even easier.
+You have now successfully applied policies to your clusters with YAML. Please note that all of these policies can be used via Red Hat GitOps making the process even easier.
 
 [#organize-policies-by-geo]
 == Organizing Policies by Geography
@@ -405,7 +405,7 @@ image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
 +
 image::02-rhacm-yaml-15.png[link=self, window=blank, width=100%]
 
-. Next, click Gorvernance Screen and Navigate to the *Policy Sets* tab. In here you will see two policy sets *emea-gdpr-policyset* and *us-nist-policyset* This helps organize the multiple policies into sets for easier distrubution feel free to click on them to see the policies 
+. Next, click Governance Screen and Navigate to the *Policy Sets* tab. In here you will see two policy sets *emea-gdpr-policyset* and *us-nist-policyset* This helps organize the multiple policies into sets for easier distribution feel free to click on them to see the policies 
 +
 image::02-rhacm-yaml-16.png[link=self, window=blank, width=100%]
 

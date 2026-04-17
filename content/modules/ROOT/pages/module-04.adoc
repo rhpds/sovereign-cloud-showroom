@@ -21,8 +21,7 @@ With OpenShift AI installed and the DataScienceCluster configured, data scientis
 
 Let's start by accessing the OpenShift AI dashboard and move on to create a run a simple python notebook.
 
-*Procedure*
-
+.Procedure
 . Access the OpenShift AI dashboard by click on the *OpenShift AI* tab in the right panel.
 +
 [NOTE]
@@ -41,8 +40,9 @@ Administrator login credentials:
 . Once logged in, you'll see the OpenShift AI dashboard home page:
 +
 image::04-openshift-ai-dashboard-01.png[OpenShift AI Dashboard Login, width=100%, link=self, window=blank]
-
++
 . Click on the Hamburger bar in the top left and navigate to the *Applications* -> *Explore* section. Here you can see the available applications that can be added to your cluster.
++
 +
 image::04-openshift-ai-dashboard-02.png[OpenShift AI Applications View, width=100%, link=self, window=blank]
 +
@@ -51,20 +51,22 @@ image::04-openshift-ai-dashboard-02.png[OpenShift AI Applications View, width=10
 image::04-openshift-ai-dashboard-03.png[OpenShift AI Applications View, width=100%, link=self, window=blank]
 +
 [NOTE]
+[NOTE]
 ====
 GPUs are expensive, so unfortunately we did not deploy a model for you to review. However, they can be managed via the OpenShift AI dashboard in the AI Hub.
 ====
+
 
 [[deploying-a-jupyter-notebook]]
 == Deploying a Jupyter Notebook
 
 Let's create a Jupyter notebook server to explore the OpenShift AI dashboard.
 
-*Procedure*
-
+.Procedure
 . To create a Jupyter notebook server, click on *Applications* -> *Enabled* -> *Start basic workbench*
 +
 image::04-openshift-ai-dashboard-04.png[Create Jupyter Workbench, width=100%, link=self, window=blank]
++
 +
 . Configure your workbench:
 .. Select a notebook image *Jupyter | Data Science | CPU | Python 3.12 | 2025.2*
@@ -86,26 +88,26 @@ image::04-openshift-ai-dashboard-06.png[Start Workbench, width=100%, link=self, 
 +
 image::04-openshift-ai-dashboard-06.png[Jupyter Notebook Server Running, width=100%, link=self, window=blank]
 +
-. Once your notebook server is running, click *Open* to access your Jupyter environment.
+. Once your notebook server is running, click *Open in New Tab* to access your Jupyter environment.
 . Your Jupyter notebook interface opens in a new tab. You can create notebooks, upload files, use a terminal, or open an existing `.ipynb` file.
++
 +
 image::04-ai.png[Jupyter Notebook, width=100%, link=self, window=blank]
 +
++
 . Next, you will run the *Python Artificial Intelligence Projects for Beginners* sample from this https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners[repository] (`Student performance.ipynb` and the CSV data files in the same folder) in your workbench:
-
 .. Open a terminal: from the *Launcher* (or the *File* menu), choose *New* → *Terminal*.
-
 .. Clone the repository into your workbench (one block to copy and paste):
 +
-[source,sh,subs="attributes",role=execute]
+[source,bash,role=execute]
 ----
 git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git
+pip install pandas scikit-learn matplotlib
 ----
 
 .. In the Jupyter *file browser* (folder icon or Jupyter logo), open *Python-Artificial-Intelligence-Projects-for-Beginners*, then double-click *Student performance.ipynb* to open it.
-
 .. Run the notebook: menu *Run* → *Run All Cells*, or run each cell in order with *Shift+Enter*.
-
++
 You should see the output of the notebook in the terminal, along with the final plot of the student performance.
 
 image::04-ai-01.png[Jupyter Notebook Output, width=100%, link=self, window=blank]

@@ -2,11 +2,6 @@
 
 = {lab_name}
 
-[IMPORTANT]
-====
-Do the modules in order and follow the instructions carefully. And make sure to run all of the scripts on this page before proceeding to the next module.
-====
-
 [[introduction]]
 == Introduction
 
@@ -70,17 +65,17 @@ We are going to deploy a bunch of insecure applications to the local cluster and
 [start=1]
 . Copy and paste the following commands into the *Terminal tab* on the right side of the screen.
 +
-[IMPORTANT]
-====
-The following command can run while you work on the first module. You do not have to wait for it to finish before starting module 1. 
-====
-+
 [source,sh,subs="attributes",role=execute]
 ----
 cd ~ && git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab
 cd ~/svc-lab
 bash setup.sh
 ----
+
+[IMPORTANT]
+====
+The following command can run while you work on the first module. You do not have to wait for it to finish before starting module 1. 
+====
 
 === OpenShift Console Access (and RHACM Console Access)
 
@@ -139,4 +134,4 @@ Administrator login credentials:
 
 image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWtnYWVvd3NmdHB6NXhkZjE1N3BzdGpyZG5vajIzeTY2NDE5a2J6NiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3og0ICZh82LEsNjHoc/giphy.gif[Celebration, width=400, align="center"]
 
-We recommend starting with Module 1 and proceeding sequentially, as each module builds upon concepts from previous modules.
+Proceed to Module 1 and move through the modules in order. Good luck!
