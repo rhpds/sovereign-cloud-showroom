@@ -3,7 +3,7 @@
 # On failure, prints re-run commands and keeps logs under $LOG_DIR.
 #
 # Already parallel at this layer:
-#   [1] lab-setup/run-all-setup.sh   — 01–07 in order, then workstation tools (cosign/gitsign need RHTAS route);
+#   [1] lab-setup/run-all-setup.sh   — 01–08 in order, then workstation tools (cosign/gitsign need RHTAS route);
 #       05 deploys local-cluster + aws-us in parallel via oc --context.
 #   [2] tssc-setup/setup.sh          — Keycloak → operator → deploy (--skip-workstation-tools: tools installed in [1]).
 #   [3] ai-setup/setup.sh            — operator + cluster checks run in parallel.

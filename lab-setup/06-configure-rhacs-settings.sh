@@ -159,6 +159,62 @@ make_api_call() {
     echo "$body"
 }
 
+# Ensure RHACS OpenShift Console plugin is enabled (idempotent).
+# Mirrors Operator "Console plugin: Enable" behavior for existing installs.
+ensure_rhacs_console_plugin_enabled() {
+    log "Ensuring RHACS OpenShift Console plugin is enabled..."
+
+    if ! oc get consoles.operator.openshift.io cluster >/dev/null 2>&1; then
+        warning "Console operator resource not found; skipping plugin enablement"
+        return 0
+    fi
+
+    local plugin_name=""
+    if oc get consoleplugins -o json >/dev/null 2>&1; then
+        plugin_name=$(oc get consoleplugins -o json 2>/dev/null | jq -r '
+            .items[] | select(
+                .metadata.name == "acs" or
+                .metadata.name == "rhacs" or
+                (.spec.displayName != null and (
+                    (.spec.displayName | ascii_downcase | test("advanced cluster security")) or
+                    (.spec.displayName | ascii_downcase | test("rhacs"))
+                ))
+            ) | .metadata.name
+        ' 2>/dev/null | awk 'NF {print; exit}')
+    fi
+
+    if [ -z "$plugin_name" ] && oc get consoleplugin acs >/dev/null 2>&1; then
+        plugin_name="acs"
+    fi
+
+    if [ -z "$plugin_name" ]; then
+        warning "RHACS ConsolePlugin not found; plugin may not be available in this RHACS version yet"
+        return 0
+    fi
+
+    local current_plugins=""
+    current_plugins=$(oc get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins[*]}' 2>/dev/null || echo "")
+    if echo "$current_plugins" | tr ' ' '\n' | grep -q "^${plugin_name}$"; then
+        log "✓ RHACS console plugin '${plugin_name}' is already enabled"
+        return 0
+    fi
+
+    local current_json=""
+    local new_plugins_json=""
+    current_json=$(oc get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null || echo "[]")
+    if [ -z "$current_json" ] || [ "$current_json" = "[]" ]; then
+        new_plugins_json="[\"${plugin_name}\"]"
+    else
+        new_plugins_json=$(echo "$current_json" | jq --arg p "$plugin_name" '. + [$p] | unique' -c 2>/dev/null || echo "[\"${plugin_name}\"]")
+    fi
+
+    if oc patch consoles.operator.openshift.io cluster --type=merge -p '{"spec":{"plugins":'"${new_plugins_json}"'}}' >/dev/null 2>&1; then
+        log "✓ RHACS console plugin '${plugin_name}' enabled in OpenShift Console"
+    else
+        warning "Could not patch OpenShift Console plugins; cluster-admin may be required"
+    fi
+}
+
 
 # Prepare configuration payload
 log "Preparing configuration payload..."
@@ -260,6 +316,9 @@ log "Validating configuration changes..."
 VALIDATED_CONFIG=$(make_api_call "GET" "config" "" "Validate configuration")
 log "✓ Configuration validated"
 
+# Enable OpenShift Console plugin for RHACS vulnerability views in OpenShift web console.
+ensure_rhacs_console_plugin_enabled
+
 # Verify key settings
 log "Verifying telemetry configuration..."
 TELEMETRY_ENABLED=$(echo "$VALIDATED_CONFIG" | jq -r '.config.publicConfig.telemetry.enabled' 2>/dev/null || echo "unknown")
@@ -280,4 +339,5 @@ log "  - Metrics collection configured (image, policy, node vulnerabilities)"
 log "  - Platform component rules updated (Red Hat layered products)"
 log "  - Retention policies configured"
 log "  - Configuration validated"
+log "  - RHACS OpenShift Console plugin enabled (when available)"
 
