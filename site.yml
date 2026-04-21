@@ -1,7 +1,6 @@
 ---
 site:
   title: LB6534 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
-  url: https://redhat-scholars.github.io/course-template
   start_page: modules::index.adoc
 
 content:
