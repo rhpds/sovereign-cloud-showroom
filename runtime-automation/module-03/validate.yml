@@ -308,11 +308,11 @@
     # Validate all tasks
     # ------------------------------------------------------------------
     - name: Validate all tasks
-      rhpds.ftl.validation_check:
-        check: >-
+      ansible.builtin.assert:
+        that: >-
           {{ _task1_ok and _task2_ok and _task3_ok and _task4_ok
              and _task5_ok and _task6_ok and _task7_ok and _task8_ok }}
-        pass_msg: |
+        success_msg: |
           Task 1: cosign binary present on bastion
           Task 2: python-ubi-312:3.12-golden image exists in Quay
           Task 3: patient-portal-frontend:1.0 image exists in Quay
@@ -321,7 +321,7 @@
           Task 6: TUF, Fulcio, and Rekor CRs all have status URLs
           Task 7: Keycloak route in rhsso namespace is reachable
           Task 8: Signature artifacts present for patient-portal-frontend:1.0
-        error_msg: |
+        fail_msg: |
           {{ 'Task 1: cosign binary present on bastion' if _task1_ok
              else 'Task 1: cosign binary not found — run the setup.sh script from ~/svc-lab/tssc-setup/setup.sh' }}
           {{ 'Task 2: python-ubi-312:3.12-golden image exists in Quay' if _task2_ok

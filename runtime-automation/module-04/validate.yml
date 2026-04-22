@@ -140,16 +140,16 @@
     # Validate all tasks
     # -------------------------------------------------------
     - name: Validate all tasks
-      rhpds.ftl.validation_check:
-        check: "{{ _task1_ok and _task2_ok and _task3_ok and _task4_ok and _task5_ok and _task6_ok }}"
-        pass_msg: |
+      ansible.builtin.assert:
+        that: "{{ _task1_ok and _task2_ok and _task3_ok and _task4_ok and _task5_ok and _task6_ok }}"
+        success_msg: |
           Task 1: RHOAI operator pod is running in redhat-ods-operator
           Task 2: DataScienceCluster resource exists and is installed
           Task 3: Workbench pod basic-workbench is Running in rhods-notebooks
           Task 4: Workbench Route exists in rhods-notebooks
           Task 5: Git repository cloned at {{ notebook_dir }}
           Task 6: Student performance.ipynb found in cloned repository
-        error_msg: |
+        fail_msg: |
           {{ 'Task 1: RHOAI operator pod running' if _task1_ok else 'Task 1: RHOAI operator pod NOT found in redhat-ods-operator — RHOAI may not be installed; contact your instructor' }}
           {{ 'Task 2: DataScienceCluster installed' if _task2_ok else 'Task 2: DataScienceCluster resource NOT found — RHOAI installation is incomplete; contact your instructor' }}
           {{ 'Task 3: Workbench pod Running' if _task3_ok else 'Task 3: Workbench pod NOT running — open the RHOAI dashboard and start the basic-workbench workbench, or click Solve' }}

@@ -221,14 +221,14 @@
     # Validate — Tasks 1-4: HostedCluster + NodePool
     # -------------------------------------------------------
     - name: Validate HostedCluster and NodePool
-      rhpds.ftl.validation_check:
-        check: "{{ _task1_hcp_exists and _task3_hcp_label and _task4_nodepool }}"
-        pass_msg: |
+      ansible.builtin.assert:
+        that: "{{ _task1_hcp_exists and _task3_hcp_label and _task4_nodepool }}"
+        success_msg: |
           Task 1: HostedCluster hcp-emea exists in namespace 'clusters'
           Task 2: HostedCluster has label location=emea
           Task 3: NodePool hcp-emea exists in namespace 'clusters'
           NOTE: HostedCluster Available condition may still be False — provisioning takes 5-10 minutes.
-        error_msg: |
+        fail_msg: |
           {{ '✅' if _task1_hcp_exists else '❌' }} Task 1: HostedCluster hcp-emea \
           {{ 'exists in clusters namespace' if _task1_hcp_exists
              else 'NOT FOUND in clusters namespace — run Solve or create the HostedCluster via RHACM' }}
@@ -245,12 +245,12 @@
     # Validate — Tasks 5-6: VirtualMachines
     # -------------------------------------------------------
     - name: Validate VirtualMachines
-      rhpds.ftl.validation_check:
-        check: "{{ _task5_vm_lab and _task6_vm_webserver }}"
-        pass_msg: |
+      ansible.builtin.assert:
+        that: "{{ _task5_vm_lab and _task6_vm_webserver }}"
+        success_msg: |
           Task 4: VirtualMachine rhel9-lab-vm exists in namespace 'default'
           Task 5: VirtualMachine rhel-webserver exists in namespace 'rhel-webserver'
-        error_msg: |
+        fail_msg: |
           {{ '✅' if _task5_vm_lab else '❌' }} Task 4: VirtualMachine rhel9-lab-vm \
           {{ 'exists in default namespace' if _task5_vm_lab
              else 'NOT FOUND in default namespace — run Solve or create it via OpenShift Virtualization' }}
@@ -262,13 +262,13 @@
     # Validate — Tasks 7-9: ArgoCD ApplicationSet and Applications
     # -------------------------------------------------------
     - name: Validate ApplicationSet and ArgoCD sync
-      rhpds.ftl.validation_check:
-        check: "{{ _task7_appset and _task9_patient_portal_ns }}"
-        pass_msg: |
+      ansible.builtin.assert:
+        that: "{{ _task7_appset and _task9_patient_portal_ns }}"
+        success_msg: |
           Task 6: ApplicationSet skupper-patient-demo exists in openshift-gitops namespace
           Task 7: Namespace patient-portal exists on the hub cluster (created by ArgoCD sync)
           NOTE: Not all Applications may be Synced+Healthy yet — sync across all clusters takes up to 15 minutes.
-        error_msg: |
+        fail_msg: |
           {{ '✅' if _task7_appset else '❌' }} Task 6: ApplicationSet skupper-patient-demo \
           {{ 'exists in openshift-gitops namespace' if _task7_appset
              else 'NOT FOUND in openshift-gitops namespace — run Solve or create the ApplicationSet via RHACM GitOps' }}
@@ -283,14 +283,14 @@
     # Validate — Tasks 10-13: RHACM Policy
     # -------------------------------------------------------
     - name: Validate RHACM Policy configuration
-      rhpds.ftl.validation_check:
-        check: "{{ _task10_policy_exists and _task11_policy_enforce and _task12_placement_binding and _task13_placement }}"
-        pass_msg: |
+      ansible.builtin.assert:
+        that: "{{ _task10_policy_exists and _task11_policy_enforce and _task12_placement_binding and _task13_placement }}"
+        success_msg: |
           Task 9: Policy policy-emea-namespace-compliance exists in namespace 'policies'
           Task 10: Policy remediationAction is 'enforce'
           Task 11: PlacementBinding binding-emea-namespace-compliance exists
           Task 12: Placement placement-policy-emea-namespace-compliance exists
-        error_msg: |
+        fail_msg: |
           {{ '✅' if _task10_policy_exists else '❌' }} Task 9: Policy policy-emea-namespace-compliance \
           {{ 'exists in policies namespace' if _task10_policy_exists
              else 'NOT FOUND in policies namespace — run Solve or apply the policy YAML via RHACM' }}

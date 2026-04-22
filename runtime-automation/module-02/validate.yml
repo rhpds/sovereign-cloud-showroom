@@ -219,15 +219,15 @@
     # -------------------------------------------------------
 
     - name: Validate all tasks
-      rhpds.ftl.validation_check:
-        check: "{{ _task1_ok and _task2_ok and _task3_ok and _task4_ok }}"
-        pass_msg: |
+      ansible.builtin.assert:
+        that: "{{ _task1_ok and _task2_ok and _task3_ok and _task4_ok }}"
+        success_msg: |
           Task 1: Image allowedRegistries configured correctly (all required registries present)
           Task 2: RHACS SecurityPolicy for Alpine package manager enforcement exists
           Task 3: RHACS Central pod is Running in stackrox namespace
           Task 4: Frontend pod is Running in patient-portal namespace (enforcement triggered and pod recovered)
           Task 5 (optional): Compliance scan schedule 'acs-catch-all' {{ 'found' if _task5_ok else 'not found — optional step not completed' }}
-        error_msg: |
+        fail_msg: |
           {{ '   OK' if _task1_ok else 'FAIL' }} Task 1: Image allowedRegistries — {{
             'configured correctly' if _task1_ok else
             'missing entries: ' + (

@@ -230,11 +230,11 @@
     # Validate
     # -------------------------------------------------------
     - name: Validate all tasks
-      rhpds.ftl.validation_check:
-        check: >-
+      ansible.builtin.assert:
+        that: >-
           {{ _task1_ok and _task2_ok and _task3_ok and
              _task4_ok and _task5_ok and _task6_ok and _task7_ok }}
-        pass_msg: |
+        success_msg: |
           Task 1: policy-emea-network-sovereignty exists and set to enforce
           Task 2: policy-emea-network-sovereignty is Compliant on the EMEA cluster
           Task 3: policy-us-namespace-compliance exists and set to enforce
@@ -242,7 +242,7 @@
           Task 5: All three Placements exist in namespace policies
           Task 6: All three PlacementBindings exist in namespace policies
           Task 7: PolicySets emea-gdpr-policyset and us-nist-policyset exist
-        error_msg: |
+        fail_msg: |
           {{ '✅' if _task1_ok else '❌' }} Task 1: policy-emea-network-sovereignty \
           {{ 'exists and enforced' if _task1_ok else \
              ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' \
