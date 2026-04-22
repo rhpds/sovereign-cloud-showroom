@@ -1,0 +1,2 @@
+kubernetes>=28.1.0
+openshift-client>=1.0.0
