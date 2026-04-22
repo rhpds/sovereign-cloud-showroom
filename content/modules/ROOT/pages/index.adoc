@@ -9,7 +9,7 @@ Organizations today want flexibility. They want to do more, with less, while acc
 
 *We at Red Hat are perfectly positioned to help organizations achieve these goals.* 
 
-Red Hat is THE Open Source and Linux company built on the principles of openness, collaboration, and innovation. Red Hat's existing hybrid cloud approach, was designed to help organizations manage data privacy and compliance concerns, bringing simplified management of OpenShift clusters, containers, virtual machines, and AI applications to an orgainzations data. The Hybrid cloud approach is built to enable organizations to deploy and manage their own sovereign cloud architectures, enabling application and data mobility and policy enforcement.
+Red Hat is THE Open Source and Linux company built on the principles of openness, collaboration, and innovation. Red Hat's existing hybrid cloud approach, was designed to help organizations manage data privacy and compliance concerns, bringing simplified management of OpenShift clusters, containers, virtual machines, and AI applications to an organization's data. The Hybrid cloud approach is built to enable organizations to deploy and manage their own sovereign cloud architectures, enabling application and data mobility and policy enforcement.
 
 [[what-youll-learn]]
 == What You'll Learn
@@ -41,6 +41,7 @@ This lab is organized into four modules:
 * xref:module-02.adoc[Module 2: Assurance] - Cluster conformance, compliance, and security insights
 * xref:module-03.adoc[Module 3: Technology and Supply Chain] - Secure supply chain and SLSA framework
 * xref:module-04.adoc[Module 4: Data and AI] - Data pipelines and AI compute capabilities
+* xref:conclusion.adoc[Conclusion] - Summary, key takeaways, and next steps
 
 [[getting-started]]
 == Getting Started
@@ -51,7 +52,7 @@ The environment has also already been pre-configured for you with the following 
 
 * On the right there are five tabs:
 ** *OpenShift Console*: this is where you will spend the majority of the time configuring the various environments and applications
-** *Advanced Cluster Security*: the console for configuring security related items
+** *Advanced Cluster Security*: the console for configuring security related items (open {acs_route} in a separate browser tab)
 ** *Quay*: the console for image registry and artifacts
 ** *OpenShift AI*: the console for building and training AI models via Jupyter notebooks and specialized accelerators
 ** *Terminal*: command line access to the OpenShift environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
@@ -132,6 +133,6 @@ Administrator login credentials:
 [[whats-next]]
 == What's Next
 
-image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWtnYWVvd3NmdHB6NXhkZjE1N3BzdGpyZG5vajIzeTY2NDE5a2J6NiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3og0ICZh82LEsNjHoc/giphy.gif[Celebration, width=400, align="center"]
+image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWtnYWVvd3NmdHB6NXhkZjE1N3BzdGpyZG5vajIzeTY2NDE5a2J6NiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3og0ICZh82LEsNjHoc/giphy.gif[Celebration, width=400, align="center", link=self, window=blank]
 
 Proceed to Module 1 and move through the modules in order. Good luck!

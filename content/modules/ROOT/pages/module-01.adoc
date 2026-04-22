@@ -4,12 +4,12 @@
 
 **Operational and Security Sovereignty** means ensuring your organization can operate technology independently and autonomously, with complete control over your data, infrastructure, and security information. 
 
-This requires a robust platform that can be used to deploy and manage your clusters, containers, virtual machines, and AI applications, while providing hardened authorization, authentication, data controls, encryption, vulnerability management, and more.
+This requires a flexible platform that can be used to deploy and manage your clusters, containers, virtual machines, and AI applications, while providing hardened authorization, authentication, data controls, encryption, vulnerability management, and more.
 
 [[multi-env-clusters]]
 == Multi-Environment Red Hat OpenShift Cluster and Virtual Machine Creation and Management
 
-Creating and managing clusters is the first step in building a sovereign cloud. When you control your clusters—from setup to daily operations—you decide where your workloads and data live, set your own policies, and stay compliant. This way, you can quickly adapt to regulations, keep your business flexible, and avoid relying on outside providers. With flexible management of clusters and virtual machines, you can build a cloud that fits your security and compliance needs from the start.
+Creating and managing clusters is the first step in building a sovereign cloud. When you control your clusters -- from setup to daily operations -- you decide where your workloads and data live, set your own policies, and stay compliant. This way, you can quickly adapt to regulations, keep your business flexible, and avoid relying on outside providers. With flexible management of clusters and virtual machines, you can build a cloud that fits your security and compliance needs from the start.
 
 [[hub-cluster-overview]]
 === RHACM Management Cluster Overview
@@ -104,7 +104,7 @@ image::107-create-cluster-networking.png[link=self, window=blank, width=100%, Cr
 image::108-create-cluster-summary-create.png[link=self, window=blank, width=100%, Create Cluster Summary Page]
 
 [start=18]
-. Sit back and watch RHACM do it's thing. You should see the Cluster creation process starting in the UI.
+. Sit back and watch RHACM do its thing. You should see the Cluster creation process starting in the UI.
 +
 image::03-cluster-creation.png[link=self, window=blank, width=100%, View New Cluster]
 +
@@ -116,13 +116,13 @@ NOTE: Deploying this Hosted Control Plane (HCP) cluster will take about 5 to 10 
 
 *Sovereign cloud operations require that organizations retain full control over where and how their containers and virtual machines run.*
 
-RHACM empowers you to deploy, manage, and observe all workloads—VMs, containers, and AI/ML—centrally with policy-driven governance and compliance across the hybrid cloud.
+RHACM empowers you to deploy, manage, and observe all workloads -- VMs, containers, and AI/ML -- centrally with policy-driven governance and compliance across the hybrid cloud.
 
 [[create-manage-vms]]
 
 == Create and Manage Virtual Machines Using the RHACM Console
 
-Red Hat Advanced Cluster Management (RHACM) with OpenShift Virtualization provides unified, policy-as-code driven control of clusters and VMs from a single console. It lets you label resources, enforce placement, and automate compliance—removing the need to jump between different management tools and ensuring consistent controls across all workloads.
+Red Hat Advanced Cluster Management (RHACM) with OpenShift Virtualization provides unified, policy-as-code driven control of clusters and VMs from a single console. It lets you label resources, enforce placement, and automate compliance -- removing the need to jump between different management tools and ensuring consistent controls across all workloads.
 
 By the end of this exercise, you will:
 
@@ -130,7 +130,7 @@ By the end of this exercise, you will:
 * Provision a new Virtual Machine using the RHACM Creation Wizard.
 * Perform Day 2 operations (Stop, Start, Migrate) directly from the multi-cluster view.
 
-NOTE: You might noticed that we have already deployed a Virtual Machine for you called *rhel-webserver* we will leverage this machine in later exercises do not delete or power off as it will affect the other modules. 
+NOTE: You might noticed that we have already deployed a Virtual Machine for you called *rhel-webserver* we will use this machine in later exercises do not delete or power off as it will affect the other modules. 
 
 === Deploy Virtual Machines Using the RHACM Console
 
@@ -169,7 +169,7 @@ image::12-vm-finish.png[link=self, window=blank, width=100%, Create VM]
 
 [TIP]
 ====
-*UI or GitOps—The Choice is Yours!*
+*UI or GitOps -- The Choice is Yours!*
 
 While this lab demonstrates the graphical capabilities of the RHACM console, Virtual Machines in OpenShift are fundamentally Kubernetes objects. You can define your VMs as code using YAML and deploy them using Red Hat OpenShift GitOps (ArgoCD). RHACM supports both workflows: use the UI for quick administration and discovery, or use GitOps for a fully declarative, audit-ready production pipeline. In sovereign cloud environments, GitOps workflows provide version-controlled infrastructure that meets compliance requirements and audit trails for regulatory demonstrations.
 ====
@@ -183,7 +183,7 @@ There are two main ways clusters get updates from Git:
 - In pull mode, each cluster gets its own updates, making things more secure and keeping everything within specific regions.
 - In push mode, a central tool sends updates out to clusters.
 
-For this lab, you’ll use the push model (with Argo CD already set up), so you can see how easy it is to deploy and manage apps with GitOps—even across multiple clusters in different locations.
+For this lab, you’ll use the push model (with Argo CD already set up), so you can see how easy it is to deploy and manage apps with GitOps -- even across multiple clusters in different locations.
 
 [[deploy-applications-using-openshift-gitops]]
 
@@ -282,25 +282,25 @@ image::03-app-complete.png[link=self, window=blank, width=100%, ACM App Placemen
 
 == Security Through Policy Guardrails
 
-*Sovereignty is not just about control — it's about confidence*
+*Sovereignty is not just about control -- it's about confidence*
 
 Achieving true sovereignty across your cloud environments includes governance and the ability to change as geographic boundaries and governments do. You need automation and flexible guardrails, as code, to achieve this.
 
 *RHACM is built for this purpose!*
 
-* **Codify sovereignty policies** — express sovereignty and compliance requirements as policy resources, versioned and reviewed alongside your application code.
-* **Govern at scale** — target policies to specific regions or environments using ClusterSets and labels, enforcing consistency across geographies.
-* **Monitor autonomously** — continuously check for “drift” against your defined guardrails, surfacing violations centrally to maintain trust.
-* **Delegate, but enforce boundaries** — let application teams move fast within a framework set by platform teams, ensuring business autonomy never compromises organizational standards.
+* **Codify sovereignty policies** -- express sovereignty and compliance requirements as policy resources, versioned and reviewed alongside your application code.
+* **Govern at scale** -- target policies to specific regions or environments using ClusterSets and labels, enforcing consistency across geographies.
+* **Monitor autonomously** -- continuously check for “drift” against your defined guardrails, surfacing violations centrally to maintain trust.
+* **Delegate, but enforce boundaries** -- let application teams move fast within a framework set by platform teams, ensuring business autonomy never compromises organizational standards.
 
 === Addressing Sovereignty in a Single Cluster with Region
 
 The EMEA - European Union's - General Data Protection Regulation (GDPR) is one of the most comprehensive data protection frameworks in the world. It also comes with a lot of headaches for organizations that operate in the EU. For Kubernetes clusters operating in EMEA, GDPR imposes specific technical requirements that must be codified as policy.
 
 Let's deploy 3 policies to the EMEA cluster to address the core pillars of GDPR's technical requirements: 
-- **data residency labeling** (Articles 44-49 — ensuring sovereignty namespaces exist with proper classification metadata)
-- **data protection by design** (Article 25 — network isolation)
-- and **security of processing** (Article 32 — pod security hardening).
+- **data residency labeling** (Articles 44-49 -- ensuring sovereignty namespaces exist with proper classification metadata)
+- **data protection by design** (Article 25 -- network isolation)
+- and **security of processing** (Article 32 -- pod security hardening).
 
 === Deploying Policies to the EMEA Managed Cluster
 
@@ -309,7 +309,7 @@ Let's deploy 3 policies to the EMEA cluster to address the core pillars of GDPR'
 .Procedure
 . From the Fleet Management Console Click on the *+ sign* -> *Import YAML* tab.
 +
-image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml.png[RHACM Import YAML interface, link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
@@ -409,7 +409,7 @@ subjects:
     kind: Policy
     apiGroup: policy.open-cluster-management.io
 ----
-image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-1.png[RHACM YAML import confirmation, link=self, window=blank, width=100%]
 +
 [IMPORTANT]
 ====
@@ -418,20 +418,20 @@ GDPR compliance starts with having clearly labeled namespaces. Labels and annota
 +
 . Click "*Create"* and verify that the YAML was added properly and there are no errors.
 +
-image::02-rhacm-yaml-2.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-2.png[RHACM YAML created successfully, link=self, window=blank, width=100%]
 +
 . Next, click *Governance* Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
-image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-3.png[Governance policies list filtered by namespace, link=self, window=blank, width=100%]
 
 . Verify that the *policy-emea-namespace-compliance* was created. Notice the Remediation is set to Inform. 
 . Change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
-image::02-rhacm-yaml-4.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-4.png[Policy remediation set to enforce, link=self, window=blank, width=100%]
 +
 . It will take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
 +
-image::02-rhacm-yaml-5.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-5.png[Cluster violations resolved showing green status, link=self, window=blank, width=100%]
 +
 
 ====
@@ -442,12 +442,12 @@ If you want to deploy more policies to the EMEA cluster, you can do so by follow
 
 === Operations and Security Takeaways
 
-* **Centralized cluster management** — Use RHACM to create, label, and manage OpenShift clusters across multiple regions from one place.
+* **Centralized cluster management** -- Use RHACM to create, label, and manage OpenShift clusters across multiple regions from one place.
 
-* **Unified workload management** — Operate virtual machines and containers together, with full visibility across clusters.
+* **Unified workload management** -- Operate virtual machines and containers together, with full visibility across clusters.
 
-* **Consistent app deployment** — Deploy and update applications to multiple clusters using Git-backed automation with OpenShift GitOps and RHACM.
+* **Consistent app deployment** -- Deploy and update applications to multiple clusters using Git-backed automation with OpenShift GitOps and RHACM.
 
-* **Automated compliance** — Define and enforce policies as code to meet residency and organizational requirements.
+* **Automated compliance** -- Define and enforce policies as code to meet residency and organizational requirements.
 
-image::https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExaHNuaGJoenozbDg5dnZ6eXNwbmluazg2MDM3c2doMHRybnV0YnJ6bSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/VhWVAa7rUtT3xKX6Cd/giphy.gif[Celebration, width=400, align="center"]
+image::https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExaHNuaGJoenozbDg5dnZ6eXNwbmluazg2MDM3c2doMHRybnV0YnJ6bSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/VhWVAa7rUtT3xKX6Cd/giphy.gif[Celebration, width=400, align="center", link=self, window=blank]

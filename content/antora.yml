@@ -1,5 +1,5 @@
 name: modules
-title: LB6535 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
+title: LB1161 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
 version: master
 nav:
 - modules/ROOT/nav.adoc
@@ -7,7 +7,7 @@ nav:
 asciidoc:
   attributes:
     # page-toclevels: -1               # <- This will remove the TOC that appear in the right sidebar at wider resolutions
-    lab_name: LB6535 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
+    lab_name: LB1161 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
     release-version: master
     page-pagination: true
     page-links:

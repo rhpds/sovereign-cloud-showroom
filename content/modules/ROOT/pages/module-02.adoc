@@ -2,11 +2,11 @@
 
 = Assurance
 
-*Sovereignty isn’t just about control — it’s about confidence*
+*Sovereignty isn’t just about control -- it’s about confidence*
 
 Confidence that your applications and clusters operate exactly as intended, fully compliant with regulations, security standards, and internal policies no matter where they run.
 
-Without robust assurance, even the most advanced cloud native environments carry hidden risks. A single compliance gap can expose your organization to regulatory fines, security breaches, data sovereignty violations, or loss of customer trust. Assurance eliminates that uncertainty. It delivers verifiable proof that every workload and cluster meets the highest standards of security and compliance across EMEA, the US, and beyond.
+Without continuous assurance, even the most advanced cloud native environments carry hidden risks. A single compliance gap can expose your organization to regulatory fines, security breaches, data sovereignty violations, or loss of customer trust. Assurance eliminates that uncertainty. It delivers verifiable proof that every workload and cluster meets the highest standards of security and compliance across EMEA, the US, and beyond.
 
 *Achieving this level of assurance requires a practical and structured approach.*
 
@@ -30,7 +30,7 @@ With RHACS, you can ensure your Kubernetes clusters remain secure and compliant 
 
 === RHACS Console Access
 
-Switch to the *Red Hat Advanced Cluster Security* tab on the right. In case you want to open it in another window it is here:  {acs_route}[window=blank]
+Open the Red Hat Advanced Cluster Security console in a separate browser tab or window: {acs_route}[window=blank]
 
 Administrator login is available with:
 
@@ -108,11 +108,11 @@ Follow the steps below to set up the compliance scan.
 .Procedure
 . Click on the *Compliance* -> *OpenShift Schedules* tab.
 +
-image::assurance-01.png[link=self, window=blank, width=100%]
+image::assurance-01.png[RHACS Compliance OpenShift Schedules tab, link=self, window=blank, width=100%]
 
 . Next, click on the *Create scan schedule*.
 +
-image::assurance-02.png[link=self, window=blank, width=100%]
+image::assurance-02.png[Create scan schedule dialog, link=self, window=blank, width=100%]
 
 . Next, fill in the form with the following information:
 * *Name*:
@@ -157,13 +157,13 @@ We will not add a delivery destination so we will skip this step. However you ca
 . Review your masterpiece and click *Save*
 . Use the menu on the schedule (three dots) and select *Run scan* to trigger a manual scan.
 +
-image::assurance-05.png[link=self, window=blank, width=100%]
+image::assurance-05.png[Scan schedule menu with Run scan option, link=self, window=blank, width=100%]
 +
-image::assurance-06.png[link=self, window=blank, width=100%]
+image::assurance-06.png[Compliance scan running, link=self, window=blank, width=100%]
 +
 . Head over to the OpenShift coverage section where you can view all of the details from the scan.
 +
-image::assurance-07.png[link=self, window=blank, width=100%]
+image::assurance-07.png[OpenShift coverage scan results, link=self, window=blank, width=100%]
 +
 ====
 First let's take a look at the standard.
@@ -171,17 +171,17 @@ First let's take a look at the standard.
 +
 Click on the *Compliance* -> *OpenShift Coverage* -> *E8* tab.
 +
-image::compliance-01.png[link=self, window=blank, width=100%]
+image::compliance-01.png[E8 compliance standard overview, link=self, window=blank, width=100%]
 +
 . Let's first check the failing standards by sorting by compliance status. Under *Compliance Status* select `Fail` and `Manual`.
 +
-image::compliance-02.png[link=self, window=blank, width=100%]
+image::compliance-02.png[Compliance status filter for Fail and Manual, link=self, window=blank, width=100%]
 +
-image::compliance-03.png[link=self, window=blank, width=100%]
+image::compliance-03.png[Filtered compliance results showing failures, link=self, window=blank, width=100%]
 +
 . And then clicking on the failing standard `ocp4-e8-ocp-allowed-registries`.
 +
-image::compliance-04.png[link=self, window=blank, width=100%]
+image::compliance-04.png[Allowed registries compliance check details, link=self, window=blank, width=100%]
 +
 ====
 Here you will see the local-cluster, named "Production", is compliant because of our earlier change but the aws-us cluster is not.
@@ -198,15 +198,15 @@ The RHACS compliance dashboard shows an overview of your scan schedules and resu
 
 In sovereign cloud setups, strict control over what runs inside your infrastructure is essential for data protection. Monitoring for file integrity and anomalous behavior is essential.
 
-Red Hat Advanced Cluster Security (RHACS) includes built-in policies that detect and block risky behaviors such as unauthorized access attempts, persistent threats, lateral movement, and file integrity violations. These policies help you enforce the immutable container principle — containers should only run exactly what you approved, with no unexpected changes.
+Red Hat Advanced Cluster Security (RHACS) includes built-in policies that detect and block risky behaviors such as unauthorized access attempts, persistent threats, lateral movement, and file integrity violations. These policies help you enforce the immutable container principle -- containers should only run exactly what you approved, with no unexpected changes.
 
 [[use-policy-as-code-block-anomalous-runtime]]
 
 == Use Policy-as-Code to Block Anomalous Behavior at Runtime
 
-Package managers such as apt, apk, yum, and dnf are useful on virtual machines, but they have no place in production containers. Allowing them enables uncontrolled software installation, dramatically increases the attack surface, and breaks auditability and immutability — all of which are core requirements for sovereign cloud environments.
+Package managers such as apt, apk, yum, and dnf are useful on virtual machines, but they have no place in production containers. Allowing them enables uncontrolled software installation, dramatically increases the attack surface, and breaks auditability and immutability -- all of which are core requirements for sovereign cloud environments.
 
-*Policy-as-Code is the best way to scale this across your global environments.*
+*Policy-as-Code is an effective way to scale this across your global environments.*
 
 Let's look at an example of how we can use Policy-as-Code to block anomalous behavior at runtime.
 
@@ -358,7 +358,7 @@ Event audits are crucial not just for security best practices, but also to meet 
 
 *Procedure*
 
-. On the right switch back to the *Red Hat Advanced Cluster Security* tab and navigate to the *Violations* page.
+. Switch back to the Red Hat Advanced Cluster Security console in your browser and navigate to the *Violations* page.
 . Filter by the policy violation *Policy*, *Name*, `r/alpine` OR by the most recent policy violations (sort by time). You will see a policy violation that has been enforced.
 +
 image::acs-violations-01.png[link=self, window=blank, width=100%, Violations Menu]
@@ -374,4 +374,4 @@ If configured properly, each violation record should be pushed to a Security Inf
 
 **Hey! Great job! Proceed to Module 3.**
 
-image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3ODhkZThkZXVxb2twdHloazAzc2VhNWJpeWowenRpeTJoczY3MTAyZyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/RIjVnmAtOD4l4c2Ert/giphy.gif[Fun celebration, width=400]
+image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3ODhkZThkZXVxb2twdHloazAzc2VhNWJpeWowenRpeTJoczY3MTAyZyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/RIjVnmAtOD4l4c2Ert/giphy.gif[Fun celebration, link=self, window=blank, width=400]

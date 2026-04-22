@@ -6,6 +6,10 @@ default_width: 40
 # Persist the URL state so browser refresh doesn't reset the UI
 persist_url_state: true
 
+view_switcher:
+  enabled: true
+  default_mode: split
+
 tabs:
 - name: Red Hat OpenShift Console
   url: 'https://console-openshift-console.${DOMAIN}'

@@ -294,9 +294,9 @@ Enter verification code:
 +
 NOTE: As mentioned above, the signing process ties an identity (an OIDC identity, to be specific) to the signature. The signing certificate is issued on demand, but *only issued if an OIDC identity proof can be established*.
 +
-image::11-signing-sso-login.png[keycloak login]
+image::11-signing-sso-login.png[Keycloak SSO login page, link=self, window=blank]
 +
-image::11-signing-successcode.png[copy the success code]
+image::11-signing-successcode.png[Copy the verification success code, link=self, window=blank]
 +
 TIP: Make sure to copy the whole code, as it is longer than the text box.
 +
@@ -341,8 +341,8 @@ cosign tree $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
 +
 > We can also view the signature in the Quay console. Head over to the console with username `quayadmin` and password `{quay_admin_password}`. check out the patient-portal-frontend image and you will see the signature.
 +
-image::11-quay-signed-image.png[link=self, window=blank, width=100%]
+image::11-quay-signed-image.png[Quay console showing signed container image, link=self, window=blank, width=100%]
 
 *You're crushing it!*
 
-image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MzBvNTN6eWR3MHF0eWNoZTI0eTVvMmRrZTMzaW4xbGIwOXJhZTJwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kAUtsLfsEfqaJRwe80/giphy.gif[width=400, Celebration!]
+image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MzBvNTN6eWR3MHF0eWNoZTI0eTVvMmRrZTMzaW4xbGIwOXJhZTJwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kAUtsLfsEfqaJRwe80/giphy.gif[Celebration, width=400, link=self, window=blank]

@@ -12,13 +12,13 @@ This page is optional reference and extra hands-on material. It is not part of t
 
 Let's apply another policy to the EMEA Cluster. This policy implements **network-level data sovereignty** by creating a NetworkPolicy in the `data-residency-emea` namespace that blocks all egress traffic to external IP addresses. Only cluster-internal communication (RFC 1918 addresses) and DNS resolution are permitted. This ensures that:
 
-* Workloads in the GDPR-restricted namespace **cannot send data to external endpoints** — whether intentionally (API calls to non-EU services) or accidentally (misconfigured logging, telemetry, or dependency resolution).
+* Workloads in the GDPR-restricted namespace **cannot send data to external endpoints** -- whether intentionally (API calls to non-EU services) or accidentally (misconfigured logging, telemetry, or dependency resolution).
 * The only allowed communication is **within the cluster boundary**, which is presumed to be within the EU/EEA geographic region.
 * DNS resolution is permitted so that internal service discovery continues to function.
 +
 . Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
 +
-image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml.png[RHACM Import YAML interface, link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
@@ -101,30 +101,30 @@ subjects:
     kind: Policy
     apiGroup: policy.open-cluster-management.io
 ----
-image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-1.png[RHACM YAML import confirmation, link=self, window=blank, width=100%]
 
 . Verify that the YAML was added properly and there are no errors.
 +
-image::02-rhacm-yaml-6.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-6.png[Network sovereignty policy created successfully, link=self, window=blank, width=100%]
 
 . Next, click Governance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
-image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-3.png[Governance policies list filtered by namespace, link=self, window=blank, width=100%]
 
 . Verify that the *policy-emea-network-sovereignty* was created. Notice the Remediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
-image::02-rhacm-yaml-7.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-7.png[Network sovereignty policy remediation set to enforce, link=self, window=blank, width=100%]
 
 . It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
 +
-image::02-rhacm-yaml-8.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-8.png[Network sovereignty cluster violations resolved, link=self, window=blank, width=100%]
 
 [#deploying-policies-to-the-us-cluster]
 == Deploying Policies to the US Cluster
 
 Now that we have locked down the *hcp-emea* cluster, let's work on locking down the *aws-us* cluster with two Policies. 
 
-The National Institute of Standards and Technology (NIST) Special Publication 800-53 is the primary security and privacy controls framework used by US federal agencies and many private sector organizations. Unlike GDPR, which focuses heavily on data residency and individual privacy rights, NIST 800-53 takes a broader systems-security approach — emphasizing access control, audit accountability, boundary protection, and continuous monitoring.
+The National Institute of Standards and Technology (NIST) Special Publication 800-53 is the primary security and privacy controls framework used by US federal agencies and many private sector organizations. Unlike GDPR, which focuses heavily on data residency and individual privacy rights, NIST 800-53 takes a broader systems-security approach -- emphasizing access control, audit accountability, boundary protection, and continuous monitoring.
 
 While GDPR asks "where is the data and can it leave?", NIST 800-53 asks "who can access the system, is access being logged, and are the boundaries controlled?" This difference in philosophy results in policies that address similar sovereignty concepts but with different technical implementations.
 
@@ -132,7 +132,7 @@ The two US policies in this module address: **namespace compliance labeling** (S
 
 . Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
 +
-image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml.png[RHACM Import YAML interface, link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
@@ -232,34 +232,34 @@ subjects:
     kind: Policy
     apiGroup: policy.open-cluster-management.io
 ----
-image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-1.png[RHACM YAML import confirmation, link=self, window=blank, width=100%]
 
 . Verify that the YAML was added properly and there are no errors.
 +
-image::02-rhacm-yaml-9.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-9.png[US namespace compliance policy created, link=self, window=blank, width=100%]
 
 . Next, click Governance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
-image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-3.png[Governance policies list filtered by namespace, link=self, window=blank, width=100%]
 
 . Verify that the *policy-us-namespace-compliance* was created. Notice the Remediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
-image::02-rhacm-yaml-10.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-10.png[US namespace compliance remediation set to enforce, link=self, window=blank, width=100%]
 
 . It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
 +
-image::02-rhacm-yaml-11.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-11.png[US namespace compliance violations resolved, link=self, window=blank, width=100%]
 
-Audit logging is the cornerstone of the NIST compliance model. Where GDPR relies on technical prevention (blocking data from leaving), NIST relies on **detection and accountability** — the assumption that if all actions are logged and monitored, unauthorized activity will be identified and responded to. This is why the US network boundary policy (Step 5) allows outbound HTTPS while this audit policy ensures that all API server activity is captured.
+Audit logging is the cornerstone of the NIST compliance model. Where GDPR relies on technical prevention (blocking data from leaving), NIST relies on **detection and accountability** -- the assumption that if all actions are logged and monitored, unauthorized activity will be identified and responded to. This is why the US network boundary policy (Step 5) allows outbound HTTPS while this audit policy ensures that all API server activity is captured.
 
 This policy ensures two things:
 
-* The OpenShift API Server audit profile is set to `WriteRequestBodies`, which captures the full content of all write requests (creates, updates, patches, deletes) to the API server. This provides a complete audit trail of who changed what and when — essential for incident response, forensic analysis, and regulatory compliance reporting.
+* The OpenShift API Server audit profile is set to `WriteRequestBodies`, which captures the full content of all write requests (creates, updates, patches, deletes) to the API server. This provides a complete audit trail of who changed what and when -- essential for incident response, forensic analysis, and regulatory compliance reporting.
 * A dedicated `audit-logging` namespace exists for centralized log collection infrastructure, labeled with `compliance-framework: nist-800-53` to indicate its purpose.
 
 . Navigate to the RHACM Console Click on the *+ sign* -> *Import YAML* tab.
 +
-image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml.png[RHACM Import YAML interface, link=self, window=blank, width=100%]
 
 . Next, paste the following YAML Click *Create*
 +
@@ -346,23 +346,23 @@ subjects:
     kind: Policy
     apiGroup: policy.open-cluster-management.io
 ----
-image::02-rhacm-yaml-1.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-1.png[RHACM YAML import confirmation, link=self, window=blank, width=100%]
 
 . Verify that the YAML was added properly and there are no errors.
 +
-image::02-rhacm-yaml-12.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-12.png[US audit logging policy created, link=self, window=blank, width=100%]
 
 . Next, click Governance Screen and Navigate to the *Policies* tab. Select Filter and check the *policies* namespace, this will show only the policies on this namespace.
 +
-image::02-rhacm-yaml-3.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-3.png[Governance policies list filtered by namespace, link=self, window=blank, width=100%]
 
 . Verify that the *policy-us-audit-logging* was created. Notice the Remediation is set to Inform. We will change this to Enforce by selecting the policy --> Actions --> Remediation --> Enforce 
 +
-image::02-rhacm-yaml-13.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-13.png[US audit logging remediation set to enforce, link=self, window=blank, width=100%]
 
 . It will Take a few seconds to execute but you should see the *Cluster Violations* go from Red to Green, indicating that your cluster is now in compliance.
 +
-image::02-rhacm-yaml-14.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-14.png[US audit logging violations resolved, link=self, window=blank, width=100%]
 
 You have now successfully applied policies to your clusters with YAML. Please note that all of these policies can be used via Red Hat GitOps making the process even easier.
 
@@ -399,15 +399,15 @@ spec:
     - policy-us-namespace-compliance
     - policy-us-audit-logging
 ----
-image::02-rhacm-yaml.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml.png[RHACM Import YAML interface, link=self, window=blank, width=100%]
 
 . Verify that the YAML was added properly and there are no errors.
 +
-image::02-rhacm-yaml-15.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-15.png[Policy sets created successfully, link=self, window=blank, width=100%]
 
 . Next, click Governance Screen and Navigate to the *Policy Sets* tab. In here you will see two policy sets *emea-gdpr-policyset* and *us-nist-policyset* This helps organize the multiple policies into sets for easier distribution feel free to click on them to see the policies 
 +
-image::02-rhacm-yaml-16.png[link=self, window=blank, width=100%]
+image::02-rhacm-yaml-16.png[Policy sets view showing EMEA and US policy sets, link=self, window=blank, width=100%]
 
 
 

@@ -6,13 +6,13 @@
 
 == Sovereign AI: Bringing AI Intelligence to Your Data
 
-**AI Sovereignty** means keeping your data, models, and AI workflows under your own control—so data stays within your organization and meets your compliance needs.
+**AI Sovereignty** means keeping your data, models, and AI workflows under your own control --so data stays within your organization and meets your compliance needs.
 
 Most AI solutions require sending sensitive data to outside services or cloud providers, risking privacy, security, and vendor lock-in.
 
 With Red Hat OpenShift AI, you can run AI tasks in your own infrastructure or private cloud. This keeps your data local, protects your intellectual property, and helps you meet regulations, while avoiding extra costs from data transfers and cloud service fees.
 
-In this module, you’ll install Red Hat OpenShift AI and set up a DataScienceCluster so you can use Jupyter notebooks, experiment with a simple workbook, and see how to deploy AI models—all while keeping your data and models secure and under your control.
+In this module, you’ll install Red Hat OpenShift AI and set up a DataScienceCluster so you can use Jupyter notebooks, experiment with a simple workbook, and see how to deploy AI models --all while keeping your data and models secure and under your control.
 
 [[exploring-openshift-ai-dashboard]]
 == Exploring the OpenShift AI Dashboard
@@ -50,7 +50,6 @@ image::04-openshift-ai-dashboard-02.png[OpenShift AI Applications View, width=10
 +
 image::04-openshift-ai-dashboard-03.png[OpenShift AI Applications View, width=100%, link=self, window=blank]
 +
-[NOTE]
 [NOTE]
 ====
 GPUs are expensive, so unfortunately we did not deploy a model for you to review. However, they can be managed via the OpenShift AI dashboard in the AI Hub.
@@ -116,7 +115,7 @@ Red Hat OpenShift AI lets you run your AI tools and data science projects right 
 
 With this setup, your sensitive data stays private, your models are secure, and you can easily meet compliance needs. OpenShift AI makes it easy to build, train, and use AI while keeping everything under your control.
 
-*You've successfully brought intelligence to your data—keeping it safe, secure, and sovereign.*
+*You've successfully brought intelligence to your data --keeping it safe, secure, and sovereign.*
 
-image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MzBvNTN6eWR3MHF0eWNoZTI0eTVvMmRrZTMzaW4xbGIwOXJhZTJwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kAUtsLfsEfqaJRwe80/giphy.gif[width=400, Celebration!]
+image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MzBvNTN6eWR3MHF0eWNoZTI0eTVvMmRrZTMzaW4xbGIwOXJhZTJwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kAUtsLfsEfqaJRwe80/giphy.gif[Celebration, width=400, link=self, window=blank]
 
