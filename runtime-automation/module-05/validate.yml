@@ -243,34 +243,17 @@
           Task 6: All three PlacementBindings exist in namespace policies
           Task 7: PolicySets emea-gdpr-policyset and us-nist-policyset exist
         fail_msg: |
-          {{ '✅' if _task1_ok else '❌' }} Task 1: policy-emea-network-sovereignty \
-          {{ 'exists and enforced' if _task1_ok else \
-             ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' \
-              if _t1_emea_exists else \
-              'not found — apply the policy in namespace policies') }}
-          {{ '✅' if _task2_ok else '❌' }} Task 2: EMEA network sovereignty compliance \
-          {{ 'Compliant' if _task2_ok else \
-             'not yet Compliant — wait for RHACM to propagate and enforce, then click Validate again' }}
-          {{ '✅' if _task3_ok else '❌' }} Task 3: policy-us-namespace-compliance \
-          {{ 'exists and enforced' if _task3_ok else \
-             ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' \
-              if _t3_us_ns_exists else \
-              'not found — apply the policy in namespace policies') }}
-          {{ '✅' if _task4_ok else '❌' }} Task 4: policy-us-audit-logging \
-          {{ 'exists and enforced' if _task4_ok else \
-             ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' \
-              if _t4_us_audit_exists else \
-              'not found — apply the policy in namespace policies') }}
-          {{ '✅' if _task5_ok else '❌' }} Task 5: Placements \
-          {{ 'all present' if _task5_ok else \
-             'one or more missing — check placement-policy-emea-network-sovereignty, \
-              placement-policy-us-namespace-compliance, placement-policy-us-audit-logging' }}
-          {{ '✅' if _task6_ok else '❌' }} Task 6: PlacementBindings \
-          {{ 'all present' if _task6_ok else \
-             'one or more missing — check binding-emea-network-sovereignty, \
-              binding-us-namespace-compliance, binding-us-audit-logging' }}
-          {{ '✅' if _task7_ok else '❌' }} Task 7: PolicySets \
-          {{ 'both present' if _task7_ok else \
-             ('emea-gdpr-policyset missing' if not _t7_emea_policyset else '') + \
-             (' us-nist-policyset missing' if not _t7_us_policyset else '') + \
-             ' — apply the PolicySet resources in namespace policies' }}
+          {{ '✅' if _task1_ok else '❌' }} Task 1: policy-emea-network-sovereignty
+          {{ 'exists and enforced' if _task1_ok else ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' if _t1_emea_exists else 'not found — apply the policy in namespace policies') }}
+          {{ '✅' if _task2_ok else '❌' }} Task 2: EMEA network sovereignty compliance
+          {{ 'Compliant' if _task2_ok else 'not yet Compliant — wait for RHACM to propagate and enforce, then click Validate again' }}
+          {{ '✅' if _task3_ok else '❌' }} Task 3: policy-us-namespace-compliance
+          {{ 'exists and enforced' if _task3_ok else ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' if _t3_us_ns_exists else 'not found — apply the policy in namespace policies') }}
+          {{ '✅' if _task4_ok else '❌' }} Task 4: policy-us-audit-logging
+          {{ 'exists and enforced' if _task4_ok else ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' if _t4_us_audit_exists else 'not found — apply the policy in namespace policies') }}
+          {{ '✅' if _task5_ok else '❌' }} Task 5: Placements
+          {{ 'all present' if _task5_ok else 'one or more missing — check placement-policy-emea-network-sovereignty, placement-policy-us-namespace-compliance, placement-policy-us-audit-logging' }}
+          {{ '✅' if _task6_ok else '❌' }} Task 6: PlacementBindings
+          {{ 'all present' if _task6_ok else 'one or more missing — check binding-emea-network-sovereignty, binding-us-namespace-compliance, binding-us-audit-logging' }}
+          {{ '✅' if _task7_ok else '❌' }} Task 7: PolicySets
+          {{ 'both present' if _task7_ok else ('emea-gdpr-policyset missing' if not _t7_emea_policyset else '') + (' us-nist-policyset missing' if not _t7_us_policyset else '') + ' — apply the PolicySet resources in namespace policies' }}
