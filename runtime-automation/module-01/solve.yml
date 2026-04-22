@@ -29,7 +29,7 @@
 
   tasks:
     # -----------------------------------------------------------------------
-    # 1. Ensure "policies" namespace exists
+    # 1. Ensure required namespaces exist
     # -----------------------------------------------------------------------
     - name: Ensure policies namespace exists
       kubernetes.core.k8s:
@@ -41,6 +41,17 @@
           kind: Namespace
           metadata:
             name: "{{ policy_namespace }}"
+
+    - name: Ensure clusters namespace exists (required for HyperShift HostedCluster)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ hcp_namespace }}"
 
     # -----------------------------------------------------------------------
     # 2. Check if HostedCluster already exists
@@ -394,7 +405,7 @@
                   requeueAfterSeconds: 180
             template:
               metadata:
-                name: "{{ appset_name }}-{{`{{name}}`}}"
+                name: "{{ appset_name }}-{{ '{{' }}name{{ '}}' }}"
               spec:
                 project: default
                 source:
@@ -403,7 +414,7 @@
                   path: "{{ git_path }}"
                 destination:
                   namespace: "{{ app_destination_ns }}"
-                  server: "{{`{{server}}`}}"
+                  server: "{{ '{{' }}server{{ '}}' }}"
                 syncPolicy:
                   automated:
                     prune: true
