@@ -1,0 +1,499 @@
+---
+- name: Module 05 Supplementary Solve
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    policies_namespace: policies
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # block-01: policy-emea-network-sovereignty + Placement + PlacementBinding
+    # -------------------------------------------------------------------------
+
+    - name: Apply policy-emea-network-sovereignty
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: Policy
+          metadata:
+            name: policy-emea-network-sovereignty
+            namespace: "{{ policies_namespace }}"
+            annotations:
+              policy.open-cluster-management.io/standards: GDPR
+              policy.open-cluster-management.io/categories: Network Security
+              policy.open-cluster-management.io/controls: Egress Restriction
+          spec:
+            remediationAction: inform
+            disabled: false
+            policy-templates:
+              - objectDefinition:
+                  apiVersion: policy.open-cluster-management.io/v1
+                  kind: ConfigurationPolicy
+                  metadata:
+                    name: emea-deny-external-egress
+                  spec:
+                    remediationAction: inform
+                    severity: critical
+                    object-templates:
+                      - complianceType: musthave
+                        objectDefinition:
+                          apiVersion: networking.k8s.io/v1
+                          kind: NetworkPolicy
+                          metadata:
+                            name: deny-external-egress
+                            namespace: data-residency-emea
+                          spec:
+                            podSelector: {}
+                            policyTypes:
+                              - Egress
+                            egress:
+                              - to: []
+                                ports:
+                                  - protocol: UDP
+                                    port: 53
+                                  - protocol: TCP
+                                    port: 53
+                              - to:
+                                  - ipBlock:
+                                      cidr: 10.0.0.0/8
+                                  - ipBlock:
+                                      cidr: 172.16.0.0/12
+      ignore_errors: true
+
+    - name: Apply placement-policy-emea-network-sovereignty
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: cluster.open-cluster-management.io/v1beta1
+          kind: Placement
+          metadata:
+            name: placement-policy-emea-network-sovereignty
+            namespace: "{{ policies_namespace }}"
+          spec:
+            clusterSets:
+              - managed
+            predicates:
+              - requiredClusterSelector:
+                  labelSelector:
+                    matchExpressions:
+                      - key: location
+                        operator: In
+                        values:
+                          - emea
+      ignore_errors: true
+
+    - name: Apply binding-emea-network-sovereignty
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: PlacementBinding
+          metadata:
+            name: binding-emea-network-sovereignty
+            namespace: "{{ policies_namespace }}"
+          placementRef:
+            name: placement-policy-emea-network-sovereignty
+            kind: Placement
+            apiGroup: cluster.open-cluster-management.io
+          subjects:
+            - name: policy-emea-network-sovereignty
+              kind: Policy
+              apiGroup: policy.open-cluster-management.io
+      ignore_errors: true
+
+    # prose-03: enforce policy-emea-network-sovereignty
+    - name: Enforce policy-emea-network-sovereignty
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: patched
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-emea-network-sovereignty
+        namespace: "{{ policies_namespace }}"
+        definition:
+          spec:
+            remediationAction: enforce
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # block-02: policy-us-namespace-compliance + Placement + PlacementBinding
+    # -------------------------------------------------------------------------
+
+    - name: Apply policy-us-namespace-compliance
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: Policy
+          metadata:
+            name: policy-us-namespace-compliance
+            namespace: "{{ policies_namespace }}"
+            annotations:
+              policy.open-cluster-management.io/standards: NIST SP 800-53
+              policy.open-cluster-management.io/categories: System and Communications Protection
+              policy.open-cluster-management.io/controls: SC-16 Transmission of Security Attributes
+          spec:
+            remediationAction: inform
+            disabled: false
+            policy-templates:
+              - objectDefinition:
+                  apiVersion: policy.open-cluster-management.io/v1
+                  kind: ConfigurationPolicy
+                  metadata:
+                    name: us-sovereignty-namespace
+                  spec:
+                    remediationAction: inform
+                    severity: high
+                    object-templates:
+                      - complianceType: musthave
+                        objectDefinition:
+                          apiVersion: v1
+                          kind: Namespace
+                          metadata:
+                            name: nist-workloads
+                            labels:
+                              data-classification: nist-controlled
+                              sovereignty: us-only
+                              compliance-framework: nist-800-53
+                              pod-security.kubernetes.io/enforce: restricted
+                              pod-security.kubernetes.io/audit: restricted
+                              pod-security.kubernetes.io/warn: restricted
+                            annotations:
+                              compliance.example.com/framework: "NIST SP 800-53 Rev. 5"
+                              compliance.example.com/controls: "AC-6, AU-2, SC-7, SC-16"
+                              compliance.example.com/data-handling: "US jurisdiction only"
+                              compliance.example.com/contact: "security-team@example.com"
+              - objectDefinition:
+                  apiVersion: policy.open-cluster-management.io/v1
+                  kind: ConfigurationPolicy
+                  metadata:
+                    name: us-data-classification-namespace
+                  spec:
+                    remediationAction: inform
+                    severity: high
+                    object-templates:
+                      - complianceType: musthave
+                        objectDefinition:
+                          apiVersion: v1
+                          kind: Namespace
+                          metadata:
+                            name: data-classification-us
+                            labels:
+                              data-classification: nist-controlled
+                              sovereignty: us-only
+                              compliance-framework: nist-800-53
+                            annotations:
+                              compliance.example.com/framework: "NIST SP 800-53 Rev. 5"
+                              compliance.example.com/data-handling: "US jurisdiction only"
+      ignore_errors: true
+
+    - name: Apply placement-policy-us-namespace-compliance
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: cluster.open-cluster-management.io/v1beta1
+          kind: Placement
+          metadata:
+            name: placement-policy-us-namespace-compliance
+            namespace: "{{ policies_namespace }}"
+          spec:
+            clusterSets:
+              - managed
+            predicates:
+              - requiredClusterSelector:
+                  labelSelector:
+                    matchExpressions:
+                      - key: location
+                        operator: In
+                        values:
+                          - us
+      ignore_errors: true
+
+    - name: Apply binding-us-namespace-compliance
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: PlacementBinding
+          metadata:
+            name: binding-us-namespace-compliance
+            namespace: "{{ policies_namespace }}"
+          placementRef:
+            name: placement-policy-us-namespace-compliance
+            kind: Placement
+            apiGroup: cluster.open-cluster-management.io
+          subjects:
+            - name: policy-us-namespace-compliance
+              kind: Policy
+              apiGroup: policy.open-cluster-management.io
+      ignore_errors: true
+
+    # prose-05: enforce policy-us-namespace-compliance
+    - name: Enforce policy-us-namespace-compliance
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: patched
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-us-namespace-compliance
+        namespace: "{{ policies_namespace }}"
+        definition:
+          spec:
+            remediationAction: enforce
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # block-03: policy-us-audit-logging + Placement + PlacementBinding
+    # -------------------------------------------------------------------------
+
+    - name: Apply policy-us-audit-logging
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: Policy
+          metadata:
+            name: policy-us-audit-logging
+            namespace: "{{ policies_namespace }}"
+            annotations:
+              policy.open-cluster-management.io/standards: NIST SP 800-53
+              policy.open-cluster-management.io/categories: Audit and Accountability
+              policy.open-cluster-management.io/controls: AU-2 Audit Events
+          spec:
+            remediationAction: inform
+            disabled: false
+            policy-templates:
+              - objectDefinition:
+                  apiVersion: policy.open-cluster-management.io/v1
+                  kind: ConfigurationPolicy
+                  metadata:
+                    name: us-audit-profile
+                  spec:
+                    remediationAction: inform
+                    severity: high
+                    object-templates:
+                      - complianceType: musthave
+                        objectDefinition:
+                          apiVersion: config.openshift.io/v1
+                          kind: APIServer
+                          metadata:
+                            name: cluster
+                          spec:
+                            audit:
+                              profile: WriteRequestBodies
+              - objectDefinition:
+                  apiVersion: policy.open-cluster-management.io/v1
+                  kind: ConfigurationPolicy
+                  metadata:
+                    name: us-audit-namespace
+                  spec:
+                    remediationAction: inform
+                    severity: medium
+                    object-templates:
+                      - complianceType: musthave
+                        objectDefinition:
+                          apiVersion: v1
+                          kind: Namespace
+                          metadata:
+                            name: audit-logging
+                            labels:
+                              compliance-framework: nist-800-53
+                              purpose: centralized-audit
+      ignore_errors: true
+
+    - name: Apply placement-policy-us-audit-logging
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: cluster.open-cluster-management.io/v1beta1
+          kind: Placement
+          metadata:
+            name: placement-policy-us-audit-logging
+            namespace: "{{ policies_namespace }}"
+          spec:
+            clusterSets:
+              - managed
+            predicates:
+              - requiredClusterSelector:
+                  labelSelector:
+                    matchExpressions:
+                      - key: location
+                        operator: In
+                        values:
+                          - us
+      ignore_errors: true
+
+    - name: Apply binding-us-audit-logging
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: PlacementBinding
+          metadata:
+            name: binding-us-audit-logging
+            namespace: "{{ policies_namespace }}"
+          placementRef:
+            name: placement-policy-us-audit-logging
+            kind: Placement
+            apiGroup: cluster.open-cluster-management.io
+          subjects:
+            - name: policy-us-audit-logging
+              kind: Policy
+              apiGroup: policy.open-cluster-management.io
+      ignore_errors: true
+
+    # prose-07: enforce policy-us-audit-logging
+    - name: Enforce policy-us-audit-logging
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: patched
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-us-audit-logging
+        namespace: "{{ policies_namespace }}"
+        definition:
+          spec:
+            remediationAction: enforce
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # block-04: PolicySets
+    # -------------------------------------------------------------------------
+
+    - name: Apply emea-gdpr-policyset
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1beta1
+          kind: PolicySet
+          metadata:
+            name: emea-gdpr-policyset
+            namespace: "{{ policies_namespace }}"
+          spec:
+            description: GDPR sovereignty controls for EMEA clusters
+            policies:
+              - policy-emea-namespace-compliance
+              - policy-emea-network-sovereignty
+      ignore_errors: true
+
+    - name: Apply us-nist-policyset
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1beta1
+          kind: PolicySet
+          metadata:
+            name: us-nist-policyset
+            namespace: "{{ policies_namespace }}"
+          spec:
+            description: NIST 800-53 controls for US clusters
+            policies:
+              - policy-us-namespace-compliance
+              - policy-us-audit-logging
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # Verification
+    # -------------------------------------------------------------------------
+
+    - name: Check policy-emea-network-sovereignty
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-emea-network-sovereignty
+        namespace: "{{ policies_namespace }}"
+      register: r_emea_network
+      ignore_errors: true
+
+    - name: Check policy-us-namespace-compliance
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-us-namespace-compliance
+        namespace: "{{ policies_namespace }}"
+      register: r_us_namespace
+      ignore_errors: true
+
+    - name: Check policy-us-audit-logging
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-us-audit-logging
+        namespace: "{{ policies_namespace }}"
+      register: r_us_audit
+      ignore_errors: true
+
+    - name: Check emea-gdpr-policyset
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1beta1
+        kind: PolicySet
+        name: emea-gdpr-policyset
+        namespace: "{{ policies_namespace }}"
+      register: r_emea_policyset
+      ignore_errors: true
+
+    - name: Check us-nist-policyset
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1beta1
+        kind: PolicySet
+        name: us-nist-policyset
+        namespace: "{{ policies_namespace }}"
+      register: r_us_policyset
+      ignore_errors: true
+
+    - name: Report solve status
+      ansible.builtin.debug:
+        msg: |
+          policy-emea-network-sovereignty: >-
+            {{ 'ok (remediationAction=' +
+               (r_emea_network.resources[0].spec.remediationAction | default('missing')) + ')'
+               if r_emea_network.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          policy-us-namespace-compliance: >-
+            {{ 'ok (remediationAction=' +
+               (r_us_namespace.resources[0].spec.remediationAction | default('missing')) + ')'
+               if r_us_namespace.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          policy-us-audit-logging: >-
+            {{ 'ok (remediationAction=' +
+               (r_us_audit.resources[0].spec.remediationAction | default('missing')) + ')'
+               if r_us_audit.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          emea-gdpr-policyset: >-
+            {{ 'ok' if r_emea_policyset.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          us-nist-policyset: >-
+            {{ 'ok' if r_us_policyset.resources | default([]) | length > 0 else 'NOT ok - not found' }}

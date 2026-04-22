@@ -1,0 +1,307 @@
+---
+- name: Module 01 - Operations and Security Validation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    hcp_namespace: clusters
+    policy_namespace: policies
+    gitops_namespace: openshift-gitops
+    vm_namespace: default
+    hcp_cluster_name: hcp-emea
+    appset_name: skupper-patient-demo
+    vm_name: rhel9-lab-vm
+    webserver_vm_name: rhel-webserver
+    webserver_vm_namespace: rhel-webserver
+    argo_server_name: openshift-gitops-global
+    policy_name: policy-emea-namespace-compliance
+
+  tasks:
+    # -------------------------------------------------------
+    # Check 1 — HostedCluster hcp-emea exists with label location=emea
+    # -------------------------------------------------------
+    - name: Query HostedCluster hcp-emea
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: hypershift.openshift.io/v1beta1
+        kind: HostedCluster
+        name: "{{ hcp_cluster_name }}"
+        namespace: "{{ hcp_namespace }}"
+      register: r_hcp
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 2 — NodePool hcp-emea exists
+    # -------------------------------------------------------
+    - name: Query NodePool hcp-emea
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: hypershift.openshift.io/v1beta1
+        kind: NodePool
+        name: "{{ hcp_cluster_name }}"
+        namespace: "{{ hcp_namespace }}"
+      register: r_nodepool
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 3 — VirtualMachine rhel9-lab-vm exists in default namespace
+    # -------------------------------------------------------
+    - name: Query VirtualMachine rhel9-lab-vm
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: r_vm
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 4 — VirtualMachine rhel-webserver exists (pre-provisioned)
+    # -------------------------------------------------------
+    - name: Query VirtualMachine rhel-webserver
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ webserver_vm_name }}"
+        namespace: "{{ webserver_vm_namespace }}"
+      register: r_webserver_vm
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 5 — ApplicationSet skupper-patient-demo exists
+    # -------------------------------------------------------
+    - name: Query ApplicationSet skupper-patient-demo
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: argoproj.io/v1alpha1
+        kind: ApplicationSet
+        name: "{{ appset_name }}"
+        namespace: "{{ gitops_namespace }}"
+      register: r_appset
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 6 — ArgoCD Applications from skupper-patient-demo are Synced and Healthy
+    #           (at least one application must exist and be in Synced+Healthy state)
+    # -------------------------------------------------------
+    - name: Query ArgoCD Applications from skupper-patient-demo
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: "{{ gitops_namespace }}"
+        label_selectors:
+          - "app.kubernetes.io/part-of=argocd"
+      register: r_argo_apps_all
+      ignore_errors: true
+
+    - name: Query ArgoCD Applications by name prefix
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: "{{ gitops_namespace }}"
+      register: r_argo_apps
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 7 — Namespace patient-portal exists on hub (created by ArgoCD)
+    # -------------------------------------------------------
+    - name: Query namespace patient-portal
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: v1
+        kind: Namespace
+        name: patient-portal
+      register: r_patient_portal_ns
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 8 — Policy policy-emea-namespace-compliance exists with enforce action
+    # -------------------------------------------------------
+    - name: Query Policy policy-emea-namespace-compliance
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: "{{ policy_name }}"
+        namespace: "{{ policy_namespace }}"
+      register: r_policy
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 9 — PlacementBinding and Placement for policy exist
+    # -------------------------------------------------------
+    - name: Query PlacementBinding binding-emea-namespace-compliance
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: PlacementBinding
+        name: binding-emea-namespace-compliance
+        namespace: "{{ policy_namespace }}"
+      register: r_placement_binding
+      ignore_errors: true
+
+    - name: Query Placement placement-policy-emea-namespace-compliance
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: cluster.open-cluster-management.io/v1beta1
+        kind: Placement
+        name: placement-policy-emea-namespace-compliance
+        namespace: "{{ policy_namespace }}"
+      register: r_placement
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Derive intermediate facts for complex conditions
+    # -------------------------------------------------------
+    - name: Derive intermediate validation facts
+      ansible.builtin.set_fact:
+        _hcp_resources: "{{ r_hcp.resources | default([]) }}"
+        _appset_apps: >-
+          {{ (r_argo_apps.resources | default([]))
+             | selectattr('metadata.name', 'search', appset_name)
+             | list }}
+        _policy_remediation: >-
+          {{ ((r_policy.resources | default([]) | first | default({})).spec | default({})).remediationAction
+             | default('') }}
+        _hcp_available: >-
+          {{ (r_hcp.resources | default([]) | first | default({})).status.conditions
+             | default([])
+             | selectattr('type', 'equalto', 'Available')
+             | selectattr('status', 'equalto', 'True')
+             | list
+             | length > 0 }}
+        _hcp_label_ok: >-
+          {{ ((r_hcp.resources | default([]) | first | default({})).metadata.labels | default({})).location
+             | default('') == 'emea' }}
+
+    - name: Derive app sync facts
+      ansible.builtin.set_fact:
+        _apps_synced_healthy: >-
+          {{ _appset_apps | length > 0 and
+             (_appset_apps
+              | selectattr('status.sync.status', 'equalto', 'Synced')
+              | selectattr('status.health.status', 'equalto', 'Healthy')
+              | list | length) > 0 }}
+
+    # -------------------------------------------------------
+    # Build task result booleans
+    # -------------------------------------------------------
+    - name: Build task results
+      ansible.builtin.set_fact:
+        _task1_hcp_exists: "{{ _hcp_resources | length > 0 }}"
+        _task2_hcp_available: "{{ _hcp_available | bool }}"
+        _task3_hcp_label: "{{ _hcp_label_ok | bool }}"
+        _task4_nodepool: "{{ r_nodepool.resources | default([]) | length > 0 }}"
+        _task5_vm_lab: "{{ r_vm.resources | default([]) | length > 0 }}"
+        _task6_vm_webserver: "{{ r_webserver_vm.resources | default([]) | length > 0 }}"
+        _task7_appset: "{{ r_appset.resources | default([]) | length > 0 }}"
+        _task8_apps_synced: "{{ _apps_synced_healthy | bool }}"
+        _task9_patient_portal_ns: "{{ r_patient_portal_ns.resources | default([]) | length > 0 }}"
+        _task10_policy_exists: "{{ r_policy.resources | default([]) | length > 0 }}"
+        _task11_policy_enforce: "{{ _policy_remediation == 'enforce' }}"
+        _task12_placement_binding: "{{ r_placement_binding.resources | default([]) | length > 0 }}"
+        _task13_placement: "{{ r_placement.resources | default([]) | length > 0 }}"
+
+    # -------------------------------------------------------
+    # Validate — Tasks 1-4: HostedCluster + NodePool
+    # -------------------------------------------------------
+    - name: Validate HostedCluster and NodePool
+      ansible.builtin.assert:
+        that: "{{ _task1_hcp_exists and _task3_hcp_label and _task4_nodepool }}"
+        success_msg: |
+          Task 1: HostedCluster hcp-emea exists in namespace 'clusters'
+          Task 2: HostedCluster has label location=emea
+          Task 3: NodePool hcp-emea exists in namespace 'clusters'
+          NOTE: HostedCluster Available condition may still be False — provisioning takes 5-10 minutes.
+        fail_msg: |
+          {{ '✅' if _task1_hcp_exists else '❌' }} Task 1: HostedCluster hcp-emea \
+          {{ 'exists in clusters namespace' if _task1_hcp_exists
+             else 'NOT FOUND in clusters namespace — run Solve or create the HostedCluster via RHACM' }}
+          {{ '✅' if _task3_hcp_label else '❌' }} Task 2: HostedCluster label location=emea \
+          {{ 'is set' if _task3_hcp_label
+             else 'is MISSING — the HostedCluster must have metadata.labels.location=emea' }}
+          {{ '✅' if _task4_nodepool else '❌' }} Task 3: NodePool hcp-emea \
+          {{ 'exists in clusters namespace' if _task4_nodepool
+             else 'NOT FOUND — run Solve or create the NodePool in namespace clusters' }}
+          {{ '⏳' if (_task1_hcp_exists and not _task2_hcp_available) else '' }} \
+          NOTE: HostedCluster provisioning takes 5-10 minutes — Available condition will become True once ready.
+
+    # -------------------------------------------------------
+    # Validate — Tasks 5-6: VirtualMachines
+    # -------------------------------------------------------
+    - name: Validate VirtualMachines
+      ansible.builtin.assert:
+        that: "{{ _task5_vm_lab and _task6_vm_webserver }}"
+        success_msg: |
+          Task 4: VirtualMachine rhel9-lab-vm exists in namespace 'default'
+          Task 5: VirtualMachine rhel-webserver exists in namespace 'rhel-webserver'
+        fail_msg: |
+          {{ '✅' if _task5_vm_lab else '❌' }} Task 4: VirtualMachine rhel9-lab-vm \
+          {{ 'exists in default namespace' if _task5_vm_lab
+             else 'NOT FOUND in default namespace — run Solve or create it via OpenShift Virtualization' }}
+          {{ '✅' if _task6_vm_webserver else '❌' }} Task 5: VirtualMachine rhel-webserver \
+          {{ 'exists in rhel-webserver namespace' if _task6_vm_webserver
+             else 'NOT FOUND in rhel-webserver namespace — this VM should be pre-provisioned by the lab environment; contact support if missing' }}
+
+    # -------------------------------------------------------
+    # Validate — Tasks 7-9: ArgoCD ApplicationSet and Applications
+    # -------------------------------------------------------
+    - name: Validate ApplicationSet and ArgoCD sync
+      ansible.builtin.assert:
+        that: "{{ _task7_appset and _task9_patient_portal_ns }}"
+        success_msg: |
+          Task 6: ApplicationSet skupper-patient-demo exists in openshift-gitops namespace
+          Task 7: Namespace patient-portal exists on the hub cluster (created by ArgoCD sync)
+          NOTE: Not all Applications may be Synced+Healthy yet — sync across all clusters takes up to 15 minutes.
+        fail_msg: |
+          {{ '✅' if _task7_appset else '❌' }} Task 6: ApplicationSet skupper-patient-demo \
+          {{ 'exists in openshift-gitops namespace' if _task7_appset
+             else 'NOT FOUND in openshift-gitops namespace — run Solve or create the ApplicationSet via RHACM GitOps' }}
+          {{ '✅' if _task8_apps_synced else '⏳' }} Task 7: ArgoCD Applications sync status — \
+          {{ 'at least one Application is Synced and Healthy' if _task8_apps_synced
+             else 'no Applications are Synced+Healthy yet — sync takes up to 15 minutes; click Validate again later' }}
+          {{ '✅' if _task9_patient_portal_ns else '❌' }} Task 8: Namespace patient-portal \
+          {{ 'exists on hub cluster' if _task9_patient_portal_ns
+             else 'NOT FOUND on hub cluster — ArgoCD sync may still be in progress; wait a few minutes and click Validate again' }}
+
+    # -------------------------------------------------------
+    # Validate — Tasks 10-13: RHACM Policy
+    # -------------------------------------------------------
+    - name: Validate RHACM Policy configuration
+      ansible.builtin.assert:
+        that: "{{ _task10_policy_exists and _task11_policy_enforce and _task12_placement_binding and _task13_placement }}"
+        success_msg: |
+          Task 9: Policy policy-emea-namespace-compliance exists in namespace 'policies'
+          Task 10: Policy remediationAction is 'enforce'
+          Task 11: PlacementBinding binding-emea-namespace-compliance exists
+          Task 12: Placement placement-policy-emea-namespace-compliance exists
+        fail_msg: |
+          {{ '✅' if _task10_policy_exists else '❌' }} Task 9: Policy policy-emea-namespace-compliance \
+          {{ 'exists in policies namespace' if _task10_policy_exists
+             else 'NOT FOUND in policies namespace — run Solve or apply the policy YAML via RHACM' }}
+          {{ '✅' if _task11_policy_enforce else '❌' }} Task 10: Policy remediationAction \
+          {{ 'is enforce' if _task11_policy_enforce
+             else 'is "' + _policy_remediation + '" (expected "enforce") — patch the policy spec.remediationAction to enforce' }}
+          {{ '✅' if _task12_placement_binding else '❌' }} Task 11: PlacementBinding binding-emea-namespace-compliance \
+          {{ 'exists' if _task12_placement_binding
+             else 'NOT FOUND in policies namespace — run Solve or apply the PlacementBinding YAML' }}
+          {{ '✅' if _task13_placement else '❌' }} Task 12: Placement placement-policy-emea-namespace-compliance \
+          {{ 'exists' if _task13_placement
+             else 'NOT FOUND in policies namespace — run Solve or apply the Placement YAML' }}
+          NOTE: EMEA namespace compliance on the hcp-emea cluster depends on both the cluster being Available and
+                the policy being enforced. If the HostedCluster is still provisioning, policy compliance will follow.

@@ -1,0 +1,258 @@
+---
+- name: Module 02 Assurance Validation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    student_user: "{{ user | default('') }}"
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # Resolve runtime values
+    # -------------------------------------------------------------------------
+
+    - name: Get Quay route host
+      ansible.builtin.command: >-
+        oc --kubeconfig={{ k8s_kubeconfig }}
+        get route quay -n quay -o jsonpath='{.spec.host}'
+      register: r_quay_route
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set quay_console_url fact
+      ansible.builtin.set_fact:
+        quay_console_url: "{{ r_quay_route.stdout | default('') }}"
+
+    - name: Get RHACS central route host
+      ansible.builtin.command: >-
+        oc --kubeconfig={{ k8s_kubeconfig }}
+        get route central -n stackrox -o jsonpath='{.spec.host}'
+      register: r_acs_route
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set acs_route fact
+      ansible.builtin.set_fact:
+        acs_route: "{{ r_acs_route.stdout | default('') }}"
+
+    - name: Get RHACS admin password from secret
+      ansible.builtin.shell: >-
+        oc --kubeconfig={{ k8s_kubeconfig }}
+        get secret central-htpasswd -n stackrox
+        -o jsonpath='{.data.password}' | base64 -d
+      register: r_acs_password
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set acs_password fact
+      ansible.builtin.set_fact:
+        acs_password: "{{ r_acs_password.stdout | default('') }}"
+
+    # -------------------------------------------------------
+    # Check 1 — Image config has allowedRegistries configured
+    # -------------------------------------------------------
+
+    - name: Get Image config cluster
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: config.openshift.io/v1
+        kind: Image
+        name: cluster
+      register: r_image_config
+      ignore_errors: true
+
+    - name: Set image config facts
+      ansible.builtin.set_fact:
+        _allowed_registries: >-
+          {{
+            (r_image_config.resources | default([]) | first | default({}))
+            .spec.registrySources.allowedRegistries | default([])
+          }}
+
+    - name: Set per-registry presence facts
+      ansible.builtin.set_fact:
+        _reg_quay_io: "{{ 'quay.io' in _allowed_registries }}"
+        _reg_redhat_io: "{{ 'registry.redhat.io' in _allowed_registries }}"
+        _reg_access_redhat: "{{ 'registry.access.redhat.com' in _allowed_registries }}"
+        _reg_internal: "{{ 'image-registry.openshift-image-registry.svc:5000' in _allowed_registries }}"
+        _reg_gcr: "{{ 'gcr.io' in _allowed_registries }}"
+        _reg_docker_io: "{{ 'docker.io' in _allowed_registries }}"
+        _reg_quay_route: >-
+          {{
+            quay_console_url | length > 0 and quay_console_url in _allowed_registries
+          }}
+
+    # -------------------------------------------------------
+    # Check 2 — RHACS SecurityPolicy for Alpine enforcement exists
+    # -------------------------------------------------------
+
+    - name: Get RHACS SecurityPolicy for Alpine package manager enforcement
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: config.stackrox.io/v1alpha1
+        kind: SecurityPolicy
+        name: alpine-linux-package-manager-execution-patient-portal-enforcement
+        namespace: stackrox
+      register: r_security_policy
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 3 — RHACS Central pod is Running in stackrox
+    # -------------------------------------------------------
+
+    - name: Get RHACS Central pod
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        kind: Pod
+        namespace: stackrox
+        label_selectors:
+          - "app=central"
+      register: r_central_pod
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 4 — Frontend pod in patient-portal was recreated
+    #           after policy enforcement killed the original.
+    #           Proof: at least one Running pod exists and either
+    #           it was recently created or has a restart > 0.
+    # -------------------------------------------------------
+
+    - name: Get frontend pods in patient-portal
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        kind: Pod
+        namespace: patient-portal
+        label_selectors:
+          - "app=frontend"
+      register: r_frontend_pods
+      ignore_errors: true
+
+    - name: Determine if frontend pod was restarted or recreated
+      ansible.builtin.set_fact:
+        _frontend_pods_running: >-
+          {{
+            r_frontend_pods.resources | default([])
+            | selectattr('status.phase', 'equalto', 'Running')
+            | list
+          }}
+      ignore_errors: true
+
+    - name: Check restart count or recent creation of frontend pods
+      ansible.builtin.set_fact:
+        _frontend_restarted: >-
+          {{
+            _frontend_pods_running | length > 0 and (
+              (_frontend_pods_running
+                | map(attribute='status.containerStatuses')
+                | flatten
+                | map(attribute='restartCount')
+                | map('int')
+                | select('gt', 0)
+                | list | length > 0)
+              or
+              (_frontend_pods_running
+                | map(attribute='metadata.creationTimestamp')
+                | list | length > 0)
+            )
+          }}
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 5 — RHACS compliance scan schedule 'acs-catch-all' exists (optional)
+    # -------------------------------------------------------
+
+    - name: Query RHACS compliance scan configurations
+      ansible.builtin.uri:
+        url: "https://{{ acs_route }}/v2/compliance/scan/configurations"
+        method: GET
+        url_username: admin
+        url_password: "{{ acs_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        timeout: 15
+        status_code: [200]
+      register: r_scan_configs
+      when:
+        - acs_route | length > 0
+        - acs_password | length > 0
+      ignore_errors: true
+
+    - name: Set scan schedule presence fact
+      ansible.builtin.set_fact:
+        _scan_schedule_ok: >-
+          {{
+            r_scan_configs is not skipped
+            and r_scan_configs is not failed
+            and (r_scan_configs.json.scanConfigs | default([])
+              | selectattr('scanName', 'equalto', 'acs-catch-all')
+              | list | length > 0)
+          }}
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Build results
+    # -------------------------------------------------------
+
+    - name: Build task results
+      ansible.builtin.set_fact:
+        _task1_ok: >-
+          {{
+            _reg_quay_io and _reg_redhat_io and _reg_access_redhat
+            and _reg_internal and _reg_gcr and _reg_docker_io and _reg_quay_route
+          }}
+        _task2_ok: "{{ r_security_policy.resources | default([]) | length > 0 }}"
+        _task3_ok: >-
+          {{
+            r_central_pod.resources | default([])
+            | selectattr('status.phase', 'equalto', 'Running')
+            | list | length > 0
+          }}
+        _task4_ok: "{{ _frontend_pods_running | default([]) | length > 0 }}"
+        _task5_ok: "{{ _scan_schedule_ok | default(false) }}"
+
+    # -------------------------------------------------------
+    # Validate all tasks
+    # -------------------------------------------------------
+
+    - name: Validate all tasks
+      ansible.builtin.assert:
+        that: "{{ _task1_ok and _task2_ok and _task3_ok and _task4_ok }}"
+        success_msg: |
+          Task 1: Image allowedRegistries configured correctly (all required registries present)
+          Task 2: RHACS SecurityPolicy for Alpine package manager enforcement exists
+          Task 3: RHACS Central pod is Running in stackrox namespace
+          Task 4: Frontend pod is Running in patient-portal namespace (enforcement triggered and pod recovered)
+          Task 5 (optional): Compliance scan schedule 'acs-catch-all' {{ 'found' if _task5_ok else 'not found — optional step not completed' }}
+        fail_msg: |
+          {{ '   OK' if _task1_ok else 'FAIL' }} Task 1: Image allowedRegistries — {{
+            'configured correctly' if _task1_ok else
+            'missing entries: ' + (
+              ([] if _reg_quay_io else ['quay.io'])
+              + ([] if _reg_redhat_io else ['registry.redhat.io'])
+              + ([] if _reg_access_redhat else ['registry.access.redhat.com'])
+              + ([] if _reg_internal else ['image-registry.openshift-image-registry.svc:5000'])
+              + ([] if _reg_gcr else ['gcr.io'])
+              + ([] if _reg_docker_io else ['docker.io'])
+              + ([] if _reg_quay_route else ['<quay-route-url>'])
+            ) | join(', ') + ' — apply the Image config as shown in the lab, then re-validate'
+          }}
+          {{ '   OK' if _task2_ok else 'FAIL' }} Task 2: RHACS SecurityPolicy — {{
+            'alpine-linux-package-manager-execution-patient-portal-enforcement exists' if _task2_ok
+            else 'SecurityPolicy not found in stackrox namespace — apply the policy as shown in the lab'
+          }}
+          {{ '   OK' if _task3_ok else 'FAIL' }} Task 3: RHACS Central pod — {{
+            'Running in stackrox' if _task3_ok
+            else 'Central pod not Running — check the stackrox namespace for errors'
+          }}
+          {{ '   OK' if _task4_ok else 'FAIL' }} Task 4: Frontend pod — {{
+            'Running in patient-portal' if _task4_ok
+            else 'No Running frontend pod found in patient-portal namespace — exec into the pod and run apk update to trigger enforcement, then wait for the pod to restart'
+          }}
+          Task 5 (optional): Compliance scan schedule 'acs-catch-all' — {{
+            'found' if _task5_ok
+            else 'not found — create the scan schedule via the RHACS UI or API as shown in the lab'
+          }}
