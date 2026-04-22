@@ -1,0 +1,276 @@
+---
+- name: Module 05 Validation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    student_user: "{{ user | default('') }}"
+    policies_namespace: policies
+
+  tasks:
+
+    # -------------------------------------------------------
+    # Check 1 — policy-emea-network-sovereignty exists and is enforced
+    # -------------------------------------------------------
+    - name: Get policy-emea-network-sovereignty
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-emea-network-sovereignty
+        namespace: "{{ policies_namespace }}"
+      register: r_emea_network
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 2 — policy-us-namespace-compliance exists and is enforced
+    # -------------------------------------------------------
+    - name: Get policy-us-namespace-compliance
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-us-namespace-compliance
+        namespace: "{{ policies_namespace }}"
+      register: r_us_namespace
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 3 — policy-us-audit-logging exists and is enforced
+    # -------------------------------------------------------
+    - name: Get policy-us-audit-logging
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-us-audit-logging
+        namespace: "{{ policies_namespace }}"
+      register: r_us_audit
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 4 — Placement for policy-emea-network-sovereignty exists
+    # -------------------------------------------------------
+    - name: Get placement-policy-emea-network-sovereignty
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: cluster.open-cluster-management.io/v1beta1
+        kind: Placement
+        name: placement-policy-emea-network-sovereignty
+        namespace: "{{ policies_namespace }}"
+      register: r_placement_emea
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 5 — PlacementBinding for policy-emea-network-sovereignty exists
+    # -------------------------------------------------------
+    - name: Get binding-emea-network-sovereignty
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: PlacementBinding
+        name: binding-emea-network-sovereignty
+        namespace: "{{ policies_namespace }}"
+      register: r_binding_emea
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 6 — Placement for policy-us-namespace-compliance exists
+    # -------------------------------------------------------
+    - name: Get placement-policy-us-namespace-compliance
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: cluster.open-cluster-management.io/v1beta1
+        kind: Placement
+        name: placement-policy-us-namespace-compliance
+        namespace: "{{ policies_namespace }}"
+      register: r_placement_us_ns
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 7 — PlacementBinding for policy-us-namespace-compliance exists
+    # -------------------------------------------------------
+    - name: Get binding-us-namespace-compliance
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: PlacementBinding
+        name: binding-us-namespace-compliance
+        namespace: "{{ policies_namespace }}"
+      register: r_binding_us_ns
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 8 — Placement for policy-us-audit-logging exists
+    # -------------------------------------------------------
+    - name: Get placement-policy-us-audit-logging
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: cluster.open-cluster-management.io/v1beta1
+        kind: Placement
+        name: placement-policy-us-audit-logging
+        namespace: "{{ policies_namespace }}"
+      register: r_placement_us_audit
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 9 — PlacementBinding for policy-us-audit-logging exists
+    # -------------------------------------------------------
+    - name: Get binding-us-audit-logging
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: PlacementBinding
+        name: binding-us-audit-logging
+        namespace: "{{ policies_namespace }}"
+      register: r_binding_us_audit
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 10 — emea-gdpr-policyset exists
+    # -------------------------------------------------------
+    - name: Get emea-gdpr-policyset
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1beta1
+        kind: PolicySet
+        name: emea-gdpr-policyset
+        namespace: "{{ policies_namespace }}"
+      register: r_emea_policyset
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 11 — us-nist-policyset exists
+    # -------------------------------------------------------
+    - name: Get us-nist-policyset
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1beta1
+        kind: PolicySet
+        name: us-nist-policyset
+        namespace: "{{ policies_namespace }}"
+      register: r_us_policyset
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Derive per-check results
+    # -------------------------------------------------------
+    - name: Build task results
+      ansible.builtin.set_fact:
+        # Task 1: EMEA network sovereignty policy exists and enforced
+        _t1_emea_exists: >-
+          {{ r_emea_network.resources | default([]) | length > 0 }}
+        _t1_emea_enforce: >-
+          {{ (r_emea_network.resources | default([]) | map(attribute='spec.remediationAction')
+              | list | first | default('')) == 'enforce' }}
+
+        # Task 2: EMEA policy compliance status (Compliant propagated back to hub)
+        _t2_emea_compliant: >-
+          {{ (r_emea_network.resources | default([]) | map(attribute='status.compliant')
+              | list | first | default('')) | lower == 'compliant' }}
+
+        # Task 3: US namespace compliance policy exists and enforced
+        _t3_us_ns_exists: >-
+          {{ r_us_namespace.resources | default([]) | length > 0 }}
+        _t3_us_ns_enforce: >-
+          {{ (r_us_namespace.resources | default([]) | map(attribute='spec.remediationAction')
+              | list | first | default('')) == 'enforce' }}
+
+        # Task 4: US audit logging policy exists and enforced
+        _t4_us_audit_exists: >-
+          {{ r_us_audit.resources | default([]) | length > 0 }}
+        _t4_us_audit_enforce: >-
+          {{ (r_us_audit.resources | default([]) | map(attribute='spec.remediationAction')
+              | list | first | default('')) == 'enforce' }}
+
+        # Task 5: All Placements exist
+        _t5_placement_emea: >-
+          {{ r_placement_emea.resources | default([]) | length > 0 }}
+        _t5_placement_us_ns: >-
+          {{ r_placement_us_ns.resources | default([]) | length > 0 }}
+        _t5_placement_us_audit: >-
+          {{ r_placement_us_audit.resources | default([]) | length > 0 }}
+
+        # Task 6: All PlacementBindings exist
+        _t6_binding_emea: >-
+          {{ r_binding_emea.resources | default([]) | length > 0 }}
+        _t6_binding_us_ns: >-
+          {{ r_binding_us_ns.resources | default([]) | length > 0 }}
+        _t6_binding_us_audit: >-
+          {{ r_binding_us_audit.resources | default([]) | length > 0 }}
+
+        # Task 7: PolicySets exist
+        _t7_emea_policyset: >-
+          {{ r_emea_policyset.resources | default([]) | length > 0 }}
+        _t7_us_policyset: >-
+          {{ r_us_policyset.resources | default([]) | length > 0 }}
+
+    - name: Build aggregate conditions
+      ansible.builtin.set_fact:
+        _task1_ok: "{{ _t1_emea_exists and _t1_emea_enforce }}"
+        _task2_ok: "{{ _t2_emea_compliant }}"
+        _task3_ok: "{{ _t3_us_ns_exists and _t3_us_ns_enforce }}"
+        _task4_ok: "{{ _t4_us_audit_exists and _t4_us_audit_enforce }}"
+        _task5_ok: "{{ _t5_placement_emea and _t5_placement_us_ns and _t5_placement_us_audit }}"
+        _task6_ok: "{{ _t6_binding_emea and _t6_binding_us_ns and _t6_binding_us_audit }}"
+        _task7_ok: "{{ _t7_emea_policyset and _t7_us_policyset }}"
+
+    # -------------------------------------------------------
+    # Validate
+    # -------------------------------------------------------
+    - name: Validate all tasks
+      rhpds.ftl.validation_check:
+        check: >-
+          {{ _task1_ok and _task2_ok and _task3_ok and
+             _task4_ok and _task5_ok and _task6_ok and _task7_ok }}
+        pass_msg: |
+          Task 1: policy-emea-network-sovereignty exists and set to enforce
+          Task 2: policy-emea-network-sovereignty is Compliant on the EMEA cluster
+          Task 3: policy-us-namespace-compliance exists and set to enforce
+          Task 4: policy-us-audit-logging exists and set to enforce
+          Task 5: All three Placements exist in namespace policies
+          Task 6: All three PlacementBindings exist in namespace policies
+          Task 7: PolicySets emea-gdpr-policyset and us-nist-policyset exist
+        error_msg: |
+          {{ '✅' if _task1_ok else '❌' }} Task 1: policy-emea-network-sovereignty \
+          {{ 'exists and enforced' if _task1_ok else \
+             ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' \
+              if _t1_emea_exists else \
+              'not found — apply the policy in namespace policies') }}
+          {{ '✅' if _task2_ok else '❌' }} Task 2: EMEA network sovereignty compliance \
+          {{ 'Compliant' if _task2_ok else \
+             'not yet Compliant — wait for RHACM to propagate and enforce, then click Validate again' }}
+          {{ '✅' if _task3_ok else '❌' }} Task 3: policy-us-namespace-compliance \
+          {{ 'exists and enforced' if _task3_ok else \
+             ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' \
+              if _t3_us_ns_exists else \
+              'not found — apply the policy in namespace policies') }}
+          {{ '✅' if _task4_ok else '❌' }} Task 4: policy-us-audit-logging \
+          {{ 'exists and enforced' if _task4_ok else \
+             ('exists but remediationAction is not enforce — set it to enforce in the RHACM console' \
+              if _t4_us_audit_exists else \
+              'not found — apply the policy in namespace policies') }}
+          {{ '✅' if _task5_ok else '❌' }} Task 5: Placements \
+          {{ 'all present' if _task5_ok else \
+             'one or more missing — check placement-policy-emea-network-sovereignty, \
+              placement-policy-us-namespace-compliance, placement-policy-us-audit-logging' }}
+          {{ '✅' if _task6_ok else '❌' }} Task 6: PlacementBindings \
+          {{ 'all present' if _task6_ok else \
+             'one or more missing — check binding-emea-network-sovereignty, \
+              binding-us-namespace-compliance, binding-us-audit-logging' }}
+          {{ '✅' if _task7_ok else '❌' }} Task 7: PolicySets \
+          {{ 'both present' if _task7_ok else \
+             ('emea-gdpr-policyset missing' if not _t7_emea_policyset else '') + \
+             (' us-nist-policyset missing' if not _t7_us_policyset else '') + \
+             ' — apply the PolicySet resources in namespace policies' }}

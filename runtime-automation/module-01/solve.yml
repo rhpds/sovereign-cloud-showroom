@@ -1,0 +1,637 @@
+---
+- name: Module 01 - Operations and Security Solve
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    # Namespaces used by this module
+    hcp_namespace: clusters
+    policy_namespace: policies
+    gitops_namespace: openshift-gitops
+    vm_namespace: default
+    # HostedCluster settings
+    hcp_cluster_name: hcp-emea
+    hcp_cluster_set: managed
+    hcp_release_image: quay.io/openshift-release-dev/ocp-release:4.21.10-multi
+    # NodePool settings
+    hcp_nodepool_replicas: 2
+    hcp_nodepool_cores: 2
+    hcp_nodepool_memory: 8Gi
+    # VM settings
+    vm_name: rhel9-lab-vm
+    # ArgoCD / GitOps settings
+    argo_server_name: openshift-gitops-global
+    appset_name: skupper-patient-demo
+    git_repo_url: https://github.com/mfosterrox/demo-applications.git
+    git_revision: main
+    git_path: skupper-demo
+    app_destination_ns: patient-portal
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Ensure "policies" namespace exists
+    # -----------------------------------------------------------------------
+    - name: Ensure policies namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ policy_namespace }}"
+
+    # -----------------------------------------------------------------------
+    # 2. Check if HostedCluster already exists
+    # -----------------------------------------------------------------------
+    - name: Check if HostedCluster hcp-emea already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: hypershift.openshift.io/v1beta1
+        kind: HostedCluster
+        name: "{{ hcp_cluster_name }}"
+        namespace: "{{ hcp_namespace }}"
+      register: r_hcp_cluster
+      ignore_errors: true
+
+    - name: Set fact - HostedCluster exists
+      ansible.builtin.set_fact:
+        hcp_cluster_exists: >-
+          {{ r_hcp_cluster.resources | default([]) | length > 0 }}
+
+    # -----------------------------------------------------------------------
+    # 3. Create HostedCluster (only if it does not exist)
+    # -----------------------------------------------------------------------
+    - name: Create HostedCluster hcp-emea
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: hypershift.openshift.io/v1beta1
+          kind: HostedCluster
+          metadata:
+            name: "{{ hcp_cluster_name }}"
+            namespace: "{{ hcp_namespace }}"
+            labels:
+              cluster.open-cluster-management.io/clusterset: "{{ hcp_cluster_set }}"
+              location: emea
+            annotations:
+              cluster.open-cluster-management.io/managedcluster-name: "{{ hcp_cluster_name }}"
+          spec:
+            release:
+              image: "{{ hcp_release_image }}"
+            controllerAvailabilityPolicy: SingleReplica
+            infrastructureAvailabilityPolicy: SingleReplica
+            platform:
+              type: KubeVirt
+              kubevirt:
+                credentials:
+                  infraKubeConfigSecret:
+                    name: hcp
+                    key: kubeconfig
+            networking:
+              networkType: OVNKubernetes
+              clusterNetwork:
+                - cidr: 10.132.0.0/14
+              serviceNetwork:
+                - cidr: 172.31.0.0/16
+            pullSecret:
+              name: "{{ hcp_cluster_name }}-pull-secret"
+            sshKey: {}
+            infraID: "{{ hcp_cluster_name }}"
+            dns:
+              baseDomain: ""
+            services:
+              - service: APIServer
+                servicePublishingStrategy:
+                  type: LoadBalancer
+              - service: OAuthServer
+                servicePublishingStrategy:
+                  type: Route
+              - service: OIDC
+                servicePublishingStrategy:
+                  type: Route
+              - service: Konnectivity
+                servicePublishingStrategy:
+                  type: Route
+              - service: Ignition
+                servicePublishingStrategy:
+                  type: Route
+      when: not hcp_cluster_exists | bool
+      ignore_errors: true
+      register: r_hcp_create
+
+    # -----------------------------------------------------------------------
+    # 4. Create NodePool for hcp-emea (only if HostedCluster was just created)
+    # -----------------------------------------------------------------------
+    - name: Check if NodePool hcp-emea already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: hypershift.openshift.io/v1beta1
+        kind: NodePool
+        name: "{{ hcp_cluster_name }}"
+        namespace: "{{ hcp_namespace }}"
+      register: r_nodepool
+      ignore_errors: true
+
+    - name: Create NodePool hcp-emea
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: hypershift.openshift.io/v1beta1
+          kind: NodePool
+          metadata:
+            name: "{{ hcp_cluster_name }}"
+            namespace: "{{ hcp_namespace }}"
+          spec:
+            clusterName: "{{ hcp_cluster_name }}"
+            replicas: "{{ hcp_nodepool_replicas }}"
+            release:
+              image: "{{ hcp_release_image }}"
+            platform:
+              type: KubeVirt
+              kubevirt:
+                compute:
+                  cores: "{{ hcp_nodepool_cores }}"
+                  memory: "{{ hcp_nodepool_memory }}"
+                rootVolume:
+                  type: Persistent
+                  persistent:
+                    size: 32Gi
+      when: r_nodepool.resources | default([]) | length == 0
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 5. Create VirtualMachine rhel9-lab-vm (from RHEL 9 server small template)
+    # -----------------------------------------------------------------------
+    - name: Check if VirtualMachine rhel9-lab-vm already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: r_vm
+      ignore_errors: true
+
+    - name: Create VirtualMachine rhel9-lab-vm from RHEL 9 server small template
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: kubevirt.io/v1
+          kind: VirtualMachine
+          metadata:
+            name: "{{ vm_name }}"
+            namespace: "{{ vm_namespace }}"
+            labels:
+              app: "{{ vm_name }}"
+              vm.kubevirt.io/template: rhel9-server-small
+          spec:
+            running: true
+            template:
+              metadata:
+                labels:
+                  kubevirt.io/domain: "{{ vm_name }}"
+              spec:
+                domain:
+                  cpu:
+                    cores: 1
+                    sockets: 1
+                    threads: 1
+                  devices:
+                    disks:
+                      - name: rootdisk
+                        disk:
+                          bus: virtio
+                      - name: cloudinitdisk
+                        disk:
+                          bus: virtio
+                    interfaces:
+                      - name: default
+                        masquerade: {}
+                  resources:
+                    requests:
+                      memory: 2Gi
+                networks:
+                  - name: default
+                    pod: {}
+                volumes:
+                  - name: rootdisk
+                    dataVolume:
+                      name: "{{ vm_name }}"
+                  - name: cloudinitdisk
+                    cloudInitNoCloud:
+                      userData: |
+                        #cloud-config
+                        user: cloud-user
+                        password: redhat
+                        chpasswd:
+                          expire: false
+            dataVolumeTemplates:
+              - metadata:
+                  name: "{{ vm_name }}"
+                spec:
+                  pvc:
+                    accessModes:
+                      - ReadWriteMany
+                    resources:
+                      requests:
+                        storage: 30Gi
+                    volumeMode: Block
+                  source:
+                    pvc:
+                      namespace: openshift-virtualization-os-images
+                      name: rhel9
+      when: r_vm.resources | default([]) | length == 0
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 6. Register ArgoCD server with RHACM — Placement + GitOpsCluster
+    # -----------------------------------------------------------------------
+    - name: Check if GitOps Placement already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: cluster.open-cluster-management.io/v1beta1
+        kind: Placement
+        name: "{{ argo_server_name }}"
+        namespace: "{{ gitops_namespace }}"
+      register: r_gitops_placement
+      ignore_errors: true
+
+    - name: Create Placement for GitOps server registration (ClusterSet global)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: cluster.open-cluster-management.io/v1beta1
+          kind: Placement
+          metadata:
+            name: "{{ argo_server_name }}"
+            namespace: "{{ gitops_namespace }}"
+          spec:
+            clusterSets:
+              - global
+      when: r_gitops_placement.resources | default([]) | length == 0
+      ignore_errors: true
+
+    - name: Check if GitOpsCluster already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: apps.open-cluster-management.io/v1beta1
+        kind: GitOpsCluster
+        name: "{{ argo_server_name }}"
+        namespace: "{{ gitops_namespace }}"
+      register: r_gitops_cluster
+      ignore_errors: true
+
+    - name: Create GitOpsCluster to register ArgoCD server with RHACM
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: apps.open-cluster-management.io/v1beta1
+          kind: GitOpsCluster
+          metadata:
+            name: "{{ argo_server_name }}"
+            namespace: "{{ gitops_namespace }}"
+          spec:
+            argoServer:
+              cluster: local-cluster
+              argoNamespace: "{{ gitops_namespace }}"
+            placementRef:
+              kind: Placement
+              apiVersion: cluster.open-cluster-management.io/v1beta1
+              name: "{{ argo_server_name }}"
+      when: r_gitops_cluster.resources | default([]) | length == 0
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 7. Create Placement for ApplicationSet (cluster names: aws-us, local-cluster, emea-cluster)
+    # -----------------------------------------------------------------------
+    - name: Check if ApplicationSet Placement already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: cluster.open-cluster-management.io/v1beta1
+        kind: Placement
+        name: "placement-{{ appset_name }}"
+        namespace: "{{ gitops_namespace }}"
+      register: r_appset_placement
+      ignore_errors: true
+
+    - name: Create Placement for skupper-patient-demo ApplicationSet
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: cluster.open-cluster-management.io/v1beta1
+          kind: Placement
+          metadata:
+            name: "placement-{{ appset_name }}"
+            namespace: "{{ gitops_namespace }}"
+          spec:
+            clusterSets:
+              - global
+            predicates:
+              - requiredClusterSelector:
+                  labelSelector:
+                    matchExpressions:
+                      - key: name
+                        operator: In
+                        values:
+                          - aws-us
+                          - local-cluster
+                          - emea-cluster
+      when: r_appset_placement.resources | default([]) | length == 0
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 8. Create ArgoCD ApplicationSet skupper-patient-demo
+    # -----------------------------------------------------------------------
+    - name: Check if ApplicationSet skupper-patient-demo already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: argoproj.io/v1alpha1
+        kind: ApplicationSet
+        name: "{{ appset_name }}"
+        namespace: "{{ gitops_namespace }}"
+      register: r_appset
+      ignore_errors: true
+
+    - name: Create ApplicationSet skupper-patient-demo
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: argoproj.io/v1alpha1
+          kind: ApplicationSet
+          metadata:
+            name: "{{ appset_name }}"
+            namespace: "{{ gitops_namespace }}"
+          spec:
+            generators:
+              - clusterDecisionResource:
+                  configMapRef: acm-placement
+                  labelSelector:
+                    matchLabels:
+                      cluster.open-cluster-management.io/placement: "placement-{{ appset_name }}"
+                  requeueAfterSeconds: 180
+            template:
+              metadata:
+                name: "{{ appset_name }}-{{`{{name}}`}}"
+              spec:
+                project: default
+                source:
+                  repoURL: "{{ git_repo_url }}"
+                  targetRevision: "{{ git_revision }}"
+                  path: "{{ git_path }}"
+                destination:
+                  namespace: "{{ app_destination_ns }}"
+                  server: "{{`{{server}}`}}"
+                syncPolicy:
+                  automated:
+                    prune: true
+                    selfHeal: true
+                  syncOptions:
+                    - CreateNamespace=true
+      when: r_appset.resources | default([]) | length == 0
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 9. Apply RHACM Policy + Placement + PlacementBinding (block-10)
+    # -----------------------------------------------------------------------
+    - name: Apply GDPR namespace compliance Policy
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: Policy
+          metadata:
+            name: policy-emea-namespace-compliance
+            namespace: "{{ policy_namespace }}"
+            annotations:
+              policy.open-cluster-management.io/standards: GDPR
+              policy.open-cluster-management.io/categories: Data Protection
+              policy.open-cluster-management.io/controls: Data Residency Labeling
+          spec:
+            remediationAction: inform
+            disabled: false
+            policy-templates:
+              - objectDefinition:
+                  apiVersion: policy.open-cluster-management.io/v1
+                  kind: ConfigurationPolicy
+                  metadata:
+                    name: emea-sovereignty-namespace
+                  spec:
+                    remediationAction: inform
+                    severity: high
+                    object-templates:
+                      - complianceType: musthave
+                        objectDefinition:
+                          apiVersion: v1
+                          kind: Namespace
+                          metadata:
+                            name: gdpr-workloads
+                            labels:
+                              data-classification: gdpr-restricted
+                              sovereignty: emea-only
+                              compliance-framework: gdpr
+                              pod-security.kubernetes.io/enforce: restricted
+                              pod-security.kubernetes.io/audit: restricted
+                              pod-security.kubernetes.io/warn: restricted
+                            annotations:
+                              compliance.example.com/regulation: "EU General Data Protection Regulation"
+                              compliance.example.com/articles: "Article 25, Article 32, Article 44-49"
+                              compliance.example.com/data-residency: "EU/EEA only"
+                              compliance.example.com/contact: "dpo@example.com"
+              - objectDefinition:
+                  apiVersion: policy.open-cluster-management.io/v1
+                  kind: ConfigurationPolicy
+                  metadata:
+                    name: emea-data-residency-namespace
+                  spec:
+                    remediationAction: inform
+                    severity: high
+                    object-templates:
+                      - complianceType: musthave
+                        objectDefinition:
+                          apiVersion: v1
+                          kind: Namespace
+                          metadata:
+                            name: data-residency-emea
+                            labels:
+                              data-classification: gdpr-restricted
+                              sovereignty: emea-only
+                              compliance-framework: gdpr
+                            annotations:
+                              compliance.example.com/regulation: "EU General Data Protection Regulation"
+                              compliance.example.com/data-residency: "EU/EEA only"
+      ignore_errors: true
+
+    - name: Apply Placement for EMEA namespace compliance policy
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: cluster.open-cluster-management.io/v1beta1
+          kind: Placement
+          metadata:
+            name: placement-policy-emea-namespace-compliance
+            namespace: "{{ policy_namespace }}"
+          spec:
+            clusterSets:
+              - managed
+            predicates:
+              - requiredClusterSelector:
+                  labelSelector:
+                    matchExpressions:
+                      - key: location
+                        operator: In
+                        values:
+                          - emea
+      ignore_errors: true
+
+    - name: Apply PlacementBinding for EMEA namespace compliance policy
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: PlacementBinding
+          metadata:
+            name: binding-emea-namespace-compliance
+            namespace: "{{ policy_namespace }}"
+          placementRef:
+            name: placement-policy-emea-namespace-compliance
+            kind: Placement
+            apiGroup: cluster.open-cluster-management.io
+          subjects:
+            - name: policy-emea-namespace-compliance
+              kind: Policy
+              apiGroup: policy.open-cluster-management.io
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 10. Patch policy remediationAction from "inform" to "enforce"
+    # -----------------------------------------------------------------------
+    - name: Patch policy-emea-namespace-compliance remediationAction to enforce
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: policy.open-cluster-management.io/v1
+          kind: Policy
+          metadata:
+            name: policy-emea-namespace-compliance
+            namespace: "{{ policy_namespace }}"
+          spec:
+            remediationAction: enforce
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 11. Verification checks
+    # -----------------------------------------------------------------------
+    - name: Check HostedCluster hcp-emea status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: hypershift.openshift.io/v1beta1
+        kind: HostedCluster
+        name: "{{ hcp_cluster_name }}"
+        namespace: "{{ hcp_namespace }}"
+      register: r_hcp_final
+      ignore_errors: true
+
+    - name: Check VirtualMachine rhel9-lab-vm status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: r_vm_final
+      ignore_errors: true
+
+    - name: Check ApplicationSet skupper-patient-demo status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: argoproj.io/v1alpha1
+        kind: ApplicationSet
+        name: "{{ appset_name }}"
+        namespace: "{{ gitops_namespace }}"
+      register: r_appset_final
+      ignore_errors: true
+
+    - name: Check Policy status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: policy.open-cluster-management.io/v1
+        kind: Policy
+        name: policy-emea-namespace-compliance
+        namespace: "{{ policy_namespace }}"
+      register: r_policy_final
+      ignore_errors: true
+
+    - name: Check GitOpsCluster status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: apps.open-cluster-management.io/v1beta1
+        kind: GitOpsCluster
+        name: "{{ argo_server_name }}"
+        namespace: "{{ gitops_namespace }}"
+      register: r_gitops_final
+      ignore_errors: true
+
+    # -----------------------------------------------------------------------
+    # 12. Report
+    # -----------------------------------------------------------------------
+    - name: Report solve status
+      ansible.builtin.debug:
+        msg: |
+          HostedCluster hcp-emea: >-
+            {{ 'ok (exists)' if r_hcp_final.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          HostedCluster provisioning state: >-
+            {{ (r_hcp_final.resources | first).status.version.history[0].state
+               if r_hcp_final.resources | default([]) | length > 0
+                  and (r_hcp_final.resources | first).status.version is defined
+               else 'unknown (cluster may still be provisioning - takes 5-10 min)' }}
+          VirtualMachine rhel9-lab-vm: >-
+            {{ 'ok (exists)' if r_vm_final.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          GitOpsCluster openshift-gitops-global: >-
+            {{ 'ok (exists)' if r_gitops_final.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          ApplicationSet skupper-patient-demo: >-
+            {{ 'ok (exists)' if r_appset_final.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          Policy policy-emea-namespace-compliance: >-
+            {{ 'ok (exists)' if r_policy_final.resources | default([]) | length > 0 else 'NOT ok - not found' }}
+          Policy remediationAction: >-
+            {{ (r_policy_final.resources | first).spec.remediationAction
+               if r_policy_final.resources | default([]) | length > 0
+               else 'unknown' }}
+          NOTE: HostedCluster provisioning takes 5-10 minutes.
+                ApplicationSet sync across clusters may take 15 minutes.
+                Re-run validate after these operations complete.

@@ -1,0 +1,158 @@
+---
+- name: Module 04 - Data and AI Validation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    notebook_namespace: "rhods-notebooks"
+    notebook_name: "basic-workbench"
+    notebook_dir: "/opt/app-root/src/Python-Artificial-Intelligence-Projects-for-Beginners"
+    notebook_file: "Student performance.ipynb"
+
+  tasks:
+
+    # -------------------------------------------------------
+    # Check 1 — RHOAI operator pod is running
+    # -------------------------------------------------------
+    - name: Get RHOAI operator pod in redhat-ods-operator namespace
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        kind: Pod
+        namespace: redhat-ods-operator
+        label_selectors:
+          - "name=rhods-operator"
+      register: r_rhoai_operator
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 2 — DataScienceCluster resource exists
+    # -------------------------------------------------------
+    - name: Get DataScienceCluster resource
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: datasciencecluster.opendatahub.io/v1
+        kind: DataScienceCluster
+      register: r_dsc
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 3 — Workbench pod is Running in rhods-notebooks
+    # -------------------------------------------------------
+    - name: Get basic-workbench notebook pod
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        kind: Pod
+        namespace: "{{ notebook_namespace }}"
+        label_selectors:
+          - "app={{ notebook_name }}"
+      register: r_notebook_pod
+      ignore_errors: true
+
+    - name: Set workbench pod name fact
+      ansible.builtin.set_fact:
+        workbench_pod: >-
+          {{
+            (r_notebook_pod.resources | default([])
+             | selectattr('status.phase', 'equalto', 'Running')
+             | list | first).metadata.name
+            | default('')
+          }}
+
+    # -------------------------------------------------------
+    # Check 4 — Workbench Route object exists
+    # -------------------------------------------------------
+    - name: Get workbench Route
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: route.openshift.io/v1
+        kind: Route
+        namespace: "{{ notebook_namespace }}"
+        label_selectors:
+          - "app={{ notebook_name }}"
+      register: r_route
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 5 — git clone directory exists inside workbench pod
+    # -------------------------------------------------------
+    - name: Check git clone directory exists in workbench pod
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        namespace: "{{ notebook_namespace }}"
+        pod: "{{ workbench_pod }}"
+        container: "{{ notebook_name }}"
+        command: "sh -c 'test -d {{ notebook_dir }} && echo EXISTS || echo MISSING'"
+      register: r_git_dir
+      when: workbench_pod | length > 0
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Check 6 — Student performance notebook file exists
+    # -------------------------------------------------------
+    - name: Check Student performance notebook file exists
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        namespace: "{{ notebook_namespace }}"
+        pod: "{{ workbench_pod }}"
+        container: "{{ notebook_name }}"
+        command: "sh -c 'test -f \"{{ notebook_dir }}/{{ notebook_file }}\" && echo EXISTS || echo MISSING'"
+      register: r_notebook_file
+      when: workbench_pod | length > 0
+      ignore_errors: true
+
+    # -------------------------------------------------------
+    # Build result booleans
+    # -------------------------------------------------------
+    - name: Build task results
+      ansible.builtin.set_fact:
+        _task1_ok: >-
+          {{
+            r_rhoai_operator.resources | default([])
+            | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+          }}
+        _task2_ok: >-
+          {{ r_dsc.resources | default([]) | length > 0 }}
+        _task3_ok: >-
+          {{
+            r_notebook_pod.resources | default([])
+            | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+          }}
+        _task4_ok: >-
+          {{ r_route.resources | default([]) | length > 0 }}
+        _task5_ok: >-
+          {{
+            workbench_pod | length > 0
+            and r_git_dir is not skipped
+            and 'EXISTS' in (r_git_dir.stdout | default(''))
+          }}
+        _task6_ok: >-
+          {{
+            workbench_pod | length > 0
+            and r_notebook_file is not skipped
+            and 'EXISTS' in (r_notebook_file.stdout | default(''))
+          }}
+
+    # -------------------------------------------------------
+    # Validate all tasks
+    # -------------------------------------------------------
+    - name: Validate all tasks
+      rhpds.ftl.validation_check:
+        check: "{{ _task1_ok and _task2_ok and _task3_ok and _task4_ok and _task5_ok and _task6_ok }}"
+        pass_msg: |
+          Task 1: RHOAI operator pod is running in redhat-ods-operator
+          Task 2: DataScienceCluster resource exists and is installed
+          Task 3: Workbench pod basic-workbench is Running in rhods-notebooks
+          Task 4: Workbench Route exists in rhods-notebooks
+          Task 5: Git repository cloned at {{ notebook_dir }}
+          Task 6: Student performance.ipynb found in cloned repository
+        error_msg: |
+          {{ 'Task 1: RHOAI operator pod running' if _task1_ok else 'Task 1: RHOAI operator pod NOT found in redhat-ods-operator — RHOAI may not be installed; contact your instructor' }}
+          {{ 'Task 2: DataScienceCluster installed' if _task2_ok else 'Task 2: DataScienceCluster resource NOT found — RHOAI installation is incomplete; contact your instructor' }}
+          {{ 'Task 3: Workbench pod Running' if _task3_ok else 'Task 3: Workbench pod NOT running — open the RHOAI dashboard and start the basic-workbench workbench, or click Solve' }}
+          {{ 'Task 4: Workbench Route exists' if _task4_ok else 'Task 4: Workbench Route NOT found — workbench may still be starting; wait a minute and click Validate again' }}
+          {{ 'Task 5: Git repository cloned' if _task5_ok else 'Task 5: Repository directory missing — open a terminal in the workbench and run: git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git, or click Solve' }}
+          {{ 'Task 6: Student performance.ipynb found' if _task6_ok else 'Task 6: Student performance.ipynb NOT found — the git clone may be incomplete; re-run the clone in the workbench terminal, or click Solve' }}
