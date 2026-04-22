@@ -238,8 +238,7 @@
               + ([] if _reg_gcr else ['gcr.io'])
               + ([] if _reg_docker_io else ['docker.io'])
               + ([] if _reg_quay_route else ['<quay-route-url>'])
-              | join(', ')
-            ) + ' — apply the Image config as shown in the lab, then re-validate'
+            ) | join(', ') + ' — apply the Image config as shown in the lab, then re-validate'
           }}
           {{ '   OK' if _task2_ok else 'FAIL' }} Task 2: RHACS SecurityPolicy — {{
             'alpine-linux-package-manager-execution-patient-portal-enforcement exists' if _task2_ok
