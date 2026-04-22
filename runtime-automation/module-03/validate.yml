@@ -6,14 +6,17 @@
   vars:
     student_user: "{{ user | default('') }}"
     quay_password: "{{ quay_admin_password | default('') }}"
+    quay_token: "{{ quay_admin_token | default('') }}"
     quay_user: "quayadmin"
-    showroom_namespace_candidates:
-      - "showroom"
-      - "showroom-{{ guid | default('') }}"
-      - "lab"
-      - "wetty"
+    # Bastion SSH vars (injected from user_data by the runner)
+    bastion_host: "{{ bastion_public_hostname | default('') }}"
+    bastion_port: "{{ bastion_ssh_port | default('22') }}"
+    bastion_user: "{{ bastion_ssh_user_name | default('lab-user') }}"
+    bastion_pass: "{{ bastion_ssh_password | default('') }}"
     tas_namespace: "trusted-artifact-signer"
-    rhsso_namespace: "rhsso"
+    keycloak_namespace_candidates:
+      - "keycloak"
+      - "rhsso"
 
   tasks:
 
@@ -44,91 +47,35 @@
         quay_url: "quay.{{ openshift_cluster_ingress_domain | default('apps.' + guid + '.example.com') }}"
       when: quay_url is not defined or quay_url | length == 0
 
-    # ------------------------------------------------------------------
-    # Discover showroom terminal pod
-    # ------------------------------------------------------------------
-    - name: Probe showroom namespace candidates
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        validate_certs: false
-        kind: Pod
-        namespace: "{{ item }}"
-      register: r_ns_probe
-      loop: "{{ showroom_namespace_candidates }}"
-      ignore_errors: true
-
-    - name: Identify first namespace with pods
-      ansible.builtin.set_fact:
-        showroom_ns_found: >-
-          {{ r_ns_probe.results
-             | selectattr('resources', 'defined')
-             | selectattr('resources', 'ne', [])
-             | map(attribute='item')
-             | list | first | default('') }}
-
-    - name: Get all pods in showroom namespace
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        validate_certs: false
-        kind: Pod
-        namespace: "{{ showroom_ns_found }}"
-      register: r_showroom_pods
-      when: showroom_ns_found | length > 0
-      ignore_errors: true
-
-    - name: Set terminal pod name — prefer wetty/terminal/bastion match
-      ansible.builtin.set_fact:
-        terminal_pod: >-
-          {{ (r_showroom_pods.resources
-              | default([])
-              | selectattr('status.phase', 'equalto', 'Running')
-              | selectattr('metadata.name', 'match', '.*(wetty|showroom|terminal|bastion).*')
-              | list | first | default({})).metadata.name | default('') }}
-        terminal_ns: "{{ showroom_ns_found }}"
-      when: r_showroom_pods.resources is defined
-      ignore_errors: true
-
-    - name: Fallback — use first running pod in showroom namespace
-      ansible.builtin.set_fact:
-        terminal_pod: >-
-          {{ (r_showroom_pods.resources
-              | default([])
-              | selectattr('status.phase', 'equalto', 'Running')
-              | list | first | default({})).metadata.name | default('') }}
-      when:
-        - terminal_pod is not defined or terminal_pod | length == 0
-        - r_showroom_pods.resources is defined
-      ignore_errors: true
-
-    - name: Report discovered terminal pod
-      ansible.builtin.debug:
-        msg: "Terminal pod: {{ terminal_pod | default('NOT FOUND') }} in namespace: {{ terminal_ns | default('unknown') }}"
-
     # -------------------------------------------------------
     # Check 1 — cosign binary present on bastion
     # -------------------------------------------------------
-    - name: Check cosign binary version
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns | default('') }}"
-        pod: "{{ terminal_pod | default('') }}"
-        command: "sh -c 'cosign version > /dev/null 2>&1 && echo ok || echo missing'"
+    - name: Check cosign binary version on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'cosign version > /dev/null 2>&1 && echo ok || echo missing'
       register: r_cosign_binary
-      when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
+      changed_when: false
+      when: bastion_host | length > 0
       ignore_errors: true
 
     # -------------------------------------------------------
     # Check 2 — Golden Python UBI image in Quay
+    # Uses Bearer token (quay_admin_token) — Quay API requires OAuth token, not basic auth
     # -------------------------------------------------------
     - name: Check python-ubi-312:3.12-golden exists in Quay
       ansible.builtin.uri:
         url: "https://{{ quay_url }}/api/v1/repository/quayadmin/python-ubi-312/tag/?specificTag=3.12-golden"
         method: GET
-        user: "{{ quay_user }}"
-        password: "{{ quay_password }}"
-        force_basic_auth: true
+        headers:
+          Authorization: "Bearer {{ quay_token }}"
         validate_certs: false
         timeout: 15
         status_code: [200]
@@ -142,9 +89,8 @@
       ansible.builtin.uri:
         url: "https://{{ quay_url }}/api/v1/repository/quayadmin/patient-portal-frontend/tag/?specificTag=1.0"
         method: GET
-        user: "{{ quay_user }}"
-        password: "{{ quay_password }}"
-        force_basic_auth: true
+        headers:
+          Authorization: "Bearer {{ quay_token }}"
         validate_certs: false
         timeout: 15
         status_code: [200]
@@ -154,33 +100,41 @@
     # -------------------------------------------------------
     # Check 4 — Dockerfile FROM line updated to golden image
     # -------------------------------------------------------
-    - name: Check Dockerfile FROM line references golden image
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns | default('') }}"
-        pod: "{{ terminal_pod | default('') }}"
-        command: >-
-          sh -c 'grep -q "python-ubi-312" ~/demo-applications/image-builds/patient-portal-frontend/Dockerfile
-          && echo ok || echo missing'
+    - name: Check Dockerfile FROM line references golden image on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'grep -q "python-ubi-312"
+            ~/demo-applications/image-builds/patient-portal-frontend/Dockerfile
+            && echo ok || echo missing'
       register: r_dockerfile
-      when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
+      changed_when: false
+      when: bastion_host | length > 0
       ignore_errors: true
 
     # -------------------------------------------------------
     # Check 5 — cosign TUF initialized (~/.sigstore exists)
     # -------------------------------------------------------
-    - name: Check ~/.sigstore directory exists
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns | default('') }}"
-        pod: "{{ terminal_pod | default('') }}"
-        command: "sh -c 'test -d ~/.sigstore && echo ok || echo missing'"
+    - name: Check ~/.sigstore directory exists on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'test -d ~/.sigstore && echo ok || echo missing'
       register: r_sigstore_dir
-      when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
+      changed_when: false
+      when: bastion_host | length > 0
       ignore_errors: true
 
     # -------------------------------------------------------
@@ -217,23 +171,47 @@
       ignore_errors: true
 
     # -------------------------------------------------------
-    # Check 7 — Keycloak route in rhsso namespace is healthy
+    # Check 7 — Keycloak route is healthy (discover namespace)
     # -------------------------------------------------------
+    - name: Probe Keycloak namespace candidates
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: route.openshift.io/v1
+        kind: Route
+        namespace: "{{ item }}"
+      register: r_kc_ns_probe
+      loop: "{{ keycloak_namespace_candidates }}"
+      ignore_errors: true
+
+    - name: Set Keycloak namespace fact
+      ansible.builtin.set_fact:
+        keycloak_ns: >-
+          {{ r_kc_ns_probe.results
+             | selectattr('resources', 'defined')
+             | selectattr('resources', 'ne', [])
+             | map(attribute='item')
+             | list | first | default('keycloak') }}
+
     - name: Get Keycloak route
       kubernetes.core.k8s_info:
         kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
         validate_certs: false
         api_version: route.openshift.io/v1
         kind: Route
-        name: keycloak
-        namespace: "{{ rhsso_namespace }}"
+        namespace: "{{ keycloak_ns }}"
       register: r_keycloak_route
       ignore_errors: true
 
     - name: Set Keycloak URL
       ansible.builtin.set_fact:
         keycloak_url: >-
-          https://{{ (r_keycloak_route.resources | default([]) | first | default({})).spec.host | default('') }}
+          https://{{ (r_keycloak_route.resources | default([])
+                      | selectattr('metadata.name', 'match', '.*keycloak.*')
+                      | list | first | default(
+                        r_keycloak_route.resources | default([]) | first | default({})
+                      )).spec.host
+                    | default('') }}
       when: r_keycloak_route.resources | default([]) | length > 0
 
     - name: Check Keycloak route is reachable
@@ -250,18 +228,22 @@
     # -------------------------------------------------------
     # Check 8 — Signature artifacts exist (cosign tree shows .sig tag)
     # -------------------------------------------------------
-    - name: Check cosign tree for signature artifacts
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns | default('') }}"
-        pod: "{{ terminal_pod | default('') }}"
-        command: >-
-          sh -c 'cosign tree {{ quay_url }}/quayadmin/patient-portal-frontend:1.0
-          --allow-insecure-registry 2>&1 | grep -q "sha256-.*\.sig" && echo signed || echo unsigned'
+    - name: Check cosign tree for signature artifacts on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'cosign tree {{ quay_url }}/quayadmin/patient-portal-frontend:1.0
+            --allow-insecure-registry 2>&1 | grep -q "sha256-.*\.sig" && echo signed || echo unsigned'
       register: r_cosign_sig
+      changed_when: false
       when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
+        - bastion_host | length > 0
         - quay_url | length > 0
       ignore_errors: true
 
@@ -271,7 +253,7 @@
     - name: Build task results
       ansible.builtin.set_fact:
         _task1_ok: >-
-          {{ terminal_pod is defined and terminal_pod | length > 0
+          {{ bastion_host | length > 0
              and r_cosign_binary is defined and r_cosign_binary is not skipped
              and r_cosign_binary.rc | default(1) == 0
              and 'ok' in (r_cosign_binary.stdout | default('')) }}
@@ -282,12 +264,12 @@
           {{ r_frontend_tag is defined and r_frontend_tag is not failed
              and (r_frontend_tag.json.tags | default([]) | length) > 0 }}
         _task4_ok: >-
-          {{ terminal_pod is defined and terminal_pod | length > 0
+          {{ bastion_host | length > 0
              and r_dockerfile is defined and r_dockerfile is not skipped
              and r_dockerfile.rc | default(1) == 0
              and 'ok' in (r_dockerfile.stdout | default('')) }}
         _task5_ok: >-
-          {{ terminal_pod is defined and terminal_pod | length > 0
+          {{ bastion_host | length > 0
              and r_sigstore_dir is defined and r_sigstore_dir is not skipped
              and r_sigstore_dir.rc | default(1) == 0
              and 'ok' in (r_sigstore_dir.stdout | default('')) }}
@@ -299,7 +281,7 @@
           {{ r_keycloak_health is defined and r_keycloak_health is not failed
              and r_keycloak_health is not skipped }}
         _task8_ok: >-
-          {{ terminal_pod is defined and terminal_pod | length > 0
+          {{ bastion_host | length > 0
              and r_cosign_sig is defined and r_cosign_sig is not skipped
              and r_cosign_sig.rc | default(1) == 0
              and 'signed' in (r_cosign_sig.stdout | default('')) }}
@@ -319,7 +301,7 @@
           Task 4: Dockerfile FROM line updated to golden image
           Task 5: cosign TUF initialized (~/.sigstore exists)
           Task 6: TUF, Fulcio, and Rekor CRs all have status URLs
-          Task 7: Keycloak route in rhsso namespace is reachable
+          Task 7: Keycloak route is reachable
           Task 8: Signature artifacts present for patient-portal-frontend:1.0
         fail_msg: |
           {{ 'Task 1: cosign binary present on bastion' if _task1_ok
@@ -334,7 +316,7 @@
              else 'Task 5: ~/.sigstore not found — run cosign initialize with the correct TUF_URL set' }}
           {{ 'Task 6: TUF, Fulcio, and Rekor CRs all have status URLs' if _task6_ok
              else 'Task 6: One or more TAS CRs missing status URL — check trusted-artifact-signer namespace for TUF/Fulcio/Rekor operator status' }}
-          {{ 'Task 7: Keycloak route in rhsso namespace is reachable' if _task7_ok
-             else 'Task 7: Keycloak route unreachable — check the rhsso namespace and verify the keycloak route exists' }}
+          {{ 'Task 7: Keycloak route is reachable' if _task7_ok
+             else 'Task 7: Keycloak route unreachable — check the keycloak/rhsso namespace and verify the keycloak route exists' }}
           {{ 'Task 8: Signature artifacts present for patient-portal-frontend:1.0' if _task8_ok
              else 'Task 8: No signature found — run: cosign sign $QUAY_URL/quayadmin/patient-portal-frontend:1.0 and complete the Keycloak browser login, then click Validate again' }}

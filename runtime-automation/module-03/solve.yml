@@ -7,19 +7,35 @@
     student_user: "{{ user | default('') }}"
     quay_password: "{{ quay_admin_password | default('') }}"
     quay_user: "quayadmin"
-    # Namespace candidates for the showroom/wetty terminal pod
-    showroom_namespace_candidates:
-      - "showroom"
-      - "showroom-{{ guid | default('') }}"
-      - "lab"
-      - "wetty"
+    # Bastion SSH vars (injected from user_data by the runner)
+    bastion_host: "{{ bastion_public_hostname | default('') }}"
+    bastion_port: "{{ bastion_ssh_port | default('22') }}"
+    bastion_user: "{{ bastion_ssh_user_name | default('lab-user') }}"
+    bastion_pass: "{{ bastion_ssh_password | default('') }}"
+    # TAS namespace
     tas_namespace: "trusted-artifact-signer"
-    rhsso_namespace: "rhsso"
+    keycloak_namespace_candidates:
+      - "keycloak"
+      - "rhsso"
+    # Repo path inside runner pod (tssc-setup scripts)
+    repo_tssc_setup: "/showroom/repo/tssc-setup"
 
   tasks:
 
     # ------------------------------------------------------------------
-    # Discover Quay route
+    # Validate bastion connectivity
+    # ------------------------------------------------------------------
+    - name: Validate bastion vars are present
+      ansible.builtin.assert:
+        that:
+          - bastion_host | length > 0
+          - bastion_pass | length > 0
+        fail_msg: >-
+          bastion_host='{{ bastion_host }}' bastion_pass length={{ bastion_pass | length }}.
+          Ensure user_data.yml contains bastion_public_hostname and bastion_ssh_password.
+
+    # ------------------------------------------------------------------
+    # Discover Quay route (k8s_info from runner — has cluster access)
     # ------------------------------------------------------------------
     - name: Get Quay route
       kubernetes.core.k8s_info:
@@ -45,94 +61,105 @@
         quay_url: "quay.{{ openshift_cluster_ingress_domain | default('apps.' + guid + '.example.com') }}"
       when: quay_url is not defined or quay_url | length == 0
 
-    # ------------------------------------------------------------------
-    # Discover showroom terminal pod
-    # ------------------------------------------------------------------
-    - name: Probe showroom namespace candidates
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        validate_certs: false
-        kind: Pod
-        namespace: "{{ item }}"
-      register: r_ns_probe
-      loop: "{{ showroom_namespace_candidates }}"
-      ignore_errors: true
-
-    - name: Identify first namespace with pods
-      ansible.builtin.set_fact:
-        showroom_ns_found: >-
-          {{ r_ns_probe.results
-             | selectattr('resources', 'defined')
-             | selectattr('resources', 'ne', [])
-             | map(attribute='item')
-             | list | first | default('') }}
-
-    - name: Get all pods in showroom namespace
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        validate_certs: false
-        kind: Pod
-        namespace: "{{ showroom_ns_found }}"
-      register: r_showroom_pods
-      when: showroom_ns_found | length > 0
-      ignore_errors: true
-
-    - name: Set terminal pod name — prefer wetty/terminal/bastion match
-      ansible.builtin.set_fact:
-        terminal_pod: >-
-          {{ (r_showroom_pods.resources
-              | default([])
-              | selectattr('status.phase', 'equalto', 'Running')
-              | selectattr('metadata.name', 'match', '.*(wetty|showroom|terminal|bastion).*')
-              | list | first | default({})).metadata.name | default('') }}
-        terminal_ns: "{{ showroom_ns_found }}"
-      when: r_showroom_pods.resources is defined
-      ignore_errors: true
-
-    - name: Fallback — use first running pod in showroom namespace
-      ansible.builtin.set_fact:
-        terminal_pod: >-
-          {{ (r_showroom_pods.resources
-              | default([])
-              | selectattr('status.phase', 'equalto', 'Running')
-              | list | first | default({})).metadata.name | default('') }}
-      when:
-        - terminal_pod is not defined or terminal_pod | length == 0
-        - r_showroom_pods.resources is defined
-      ignore_errors: true
-
-    - name: Report discovered terminal pod
+    - name: Report Quay URL
       ansible.builtin.debug:
-        msg: "Terminal pod: {{ terminal_pod | default('NOT FOUND') }} in namespace: {{ terminal_ns | default('unknown') }}"
+        msg: "Quay URL: {{ quay_url }}"
 
     # ------------------------------------------------------------------
-    # block-01 / block-02 — verify cosign present, install if needed
+    # block-01 — install workstation tools (podman, cosign) on bastion
+    # The 00-workstation-tools.sh script is on the runner at /showroom/repo/tssc-setup/
+    # We copy it to the bastion and run it.
     # ------------------------------------------------------------------
-    - name: Check cosign installed; run setup.sh if missing
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns }}"
-        pod: "{{ terminal_pod }}"
-        command: |
-          sh -c 'if ! command -v cosign &>/dev/null; then echo "cosign not found — running setup.sh"; cd ~/svc-lab/tssc-setup && ./setup.sh; else cosign version | head -5; fi'
-      when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
+    - name: Check if cosign already installed on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'command -v cosign && cosign version 2>/dev/null | head -1 || echo "cosign_missing"'
       register: r_cosign_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: Copy 00-workstation-tools.sh to bastion and run it (install podman + cosign)
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          BHOST="{{ bastion_host }}"
+          BPORT="{{ bastion_port }}"
+          BUSER="{{ bastion_user }}"
+          BPASS="{{ bastion_pass }}"
+          SCRIPT="{{ repo_tssc_setup }}/00-workstation-tools.sh"
+
+          # Copy the script to bastion /tmp
+          sshpass -p "$BPASS" scp -o StrictHostKeyChecking=no -P "$BPORT" \
+            "$SCRIPT" "${BUSER}@${BHOST}:/tmp/00-workstation-tools.sh"
+
+          # Run the script on bastion (sudo for dnf install podman)
+          sshpass -p "$BPASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=120 \
+            -p "$BPORT" "${BUSER}@${BHOST}" \
+            'chmod +x /tmp/00-workstation-tools.sh && /tmp/00-workstation-tools.sh'
+      when: "'cosign_missing' in (r_cosign_check.stdout | default('cosign_missing'))"
+      register: r_install_tools
+      ignore_errors: true
+
+    - name: Verify cosign installed on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'cosign version 2>/dev/null | head -3 || echo "cosign_missing"'
+      register: r_cosign_verify
+      changed_when: false
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # block-01b — ensure demo-applications repo is cloned on bastion
+    # ------------------------------------------------------------------
+    - name: Clone demo-applications repository on bastion if missing
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=60
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'if [ ! -d ~/demo-applications ]; then
+               git clone https://github.com/mfosterrox/demo-applications.git ~/demo-applications
+               echo "cloned"
+             else
+               echo "exists"
+             fi'
+      register: r_demo_apps_clone
+      changed_when: "'cloned' in r_demo_apps_clone.stdout"
       ignore_errors: true
 
     # ------------------------------------------------------------------
     # block-01 — podman login to Quay
     # ------------------------------------------------------------------
-    - name: Podman login to Quay
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns }}"
-        pod: "{{ terminal_pod }}"
-        command: "sh -c 'podman login https://{{ quay_url }} -u {{ quay_user }} -p {{ quay_password }} --tls-verify=false'"
+    - name: Podman login to Quay on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >-
+            sshpass -p {{ bastion_pass | quote }}
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
+            -p {{ bastion_port }}
+            {{ bastion_user }}@{{ bastion_host }}
+            'podman login https://{{ quay_url }} -u {{ quay_user }} -p {{ quay_password }} --tls-verify=false'
       when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
         - quay_url | length > 0
         - quay_password | length > 0
       register: r_podman_login
@@ -142,68 +169,88 @@
     # block-03 — pull, tag, push golden Python UBI image
     # ------------------------------------------------------------------
     - name: Pull, tag and push golden Python UBI image to Quay
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns }}"
-        pod: "{{ terminal_pod }}"
-        command: |
-          sh -c '
-          set -e
-          QUAY_URL="{{ quay_url }}"
-          QUAY_USER="{{ quay_user }}"
-          SOURCE=registry.access.redhat.com/ubi8/python-312:1-1775513555
-          TARGET=${QUAY_URL}/${QUAY_USER}/python-ubi-312:3.12-golden
-          if podman manifest inspect ${TARGET} --tls-verify=false 2>/dev/null; then
-            echo "Golden image already in Quay — skipping"
-          else
-            podman pull ${SOURCE}
-            podman tag ${SOURCE} ${TARGET}
-            podman push --remove-signatures --tls-verify=false ${TARGET}
-            echo "Golden image pushed"
-          fi
-          '
-      when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
-        - quay_url | length > 0
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - |
+            sshpass -p {{ bastion_pass | quote }} \
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=120 \
+            -p {{ bastion_port }} \
+            {{ bastion_user }}@{{ bastion_host }} \
+            'set -e
+            QUAY_URL="{{ quay_url }}"
+            QUAY_USER="{{ quay_user }}"
+            SOURCE=registry.access.redhat.com/ubi8/python-312:1-1775513555
+            TARGET=${QUAY_URL}/${QUAY_USER}/python-ubi-312:3.12-golden
+            if podman manifest inspect ${TARGET} --tls-verify=false 2>/dev/null; then
+              echo "Golden image already in Quay — skipping"
+            else
+              podman pull ${SOURCE}
+              podman tag ${SOURCE} ${TARGET}
+              podman push --remove-signatures --tls-verify=false ${TARGET}
+              echo "Golden image pushed"
+            fi'
+      when: quay_url | length > 0
       register: r_golden_image
       ignore_errors: true
 
     # ------------------------------------------------------------------
-    # block-04 / block-05 / block-06 / block-07
-    # Update Dockerfile FROM line, build, push patient-portal-frontend
+    # block-04 — always update Dockerfile FROM line to golden image
+    # (done unconditionally so on-disk Dockerfile always reflects golden image)
     # ------------------------------------------------------------------
-    - name: Update Dockerfile FROM line, build and push patient-portal-frontend
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns }}"
-        pod: "{{ terminal_pod }}"
-        command: |
-          sh -c '
-          set -e
-          QUAY_URL="{{ quay_url }}"
-          QUAY_USER="{{ quay_user }}"
-          BUILD_DIR=~/demo-applications/image-builds/patient-portal-frontend
-          GOLDEN=${QUAY_URL}/${QUAY_USER}/python-ubi-312:3.12-golden
-          TARGET=${QUAY_URL}/${QUAY_USER}/patient-portal-frontend:1.0
-          cd ${BUILD_DIR}
-          sed -i "s|^FROM docker.io/library/python:3.12-slim|FROM ${GOLDEN}|g" Dockerfile
-          echo "Dockerfile FROM line after update:"
-          head -5 Dockerfile
-          if podman manifest inspect ${TARGET} --tls-verify=false 2>/dev/null; then
-            echo "patient-portal-frontend:1.0 already in Quay — skipping build/push"
-          else
-            echo "Building ${TARGET} ..."
-            timeout 600 podman build -t ${TARGET} .
-            echo "Pushing ${TARGET} ..."
-            podman push --tls-verify=false ${TARGET}
-            echo "patient-portal-frontend pushed"
-          fi
-          '
-      when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
-        - quay_url | length > 0
+    - name: Update Dockerfile FROM line to use golden image
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - |
+            sshpass -p {{ bastion_pass | quote }} \
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            -p {{ bastion_port }} \
+            {{ bastion_user }}@{{ bastion_host }} \
+            'QUAY_URL="{{ quay_url }}"
+            QUAY_USER="{{ quay_user }}"
+            BUILD_DIR=~/demo-applications/image-builds/patient-portal-frontend
+            GOLDEN=${QUAY_URL}/${QUAY_USER}/python-ubi-312:3.12-golden
+            cd ${BUILD_DIR}
+            # Replace any "FROM docker.io/library/python:*" line with the golden image
+            sed -i "s|^FROM docker.io/library/python:[^[:space:]]*|FROM ${GOLDEN}|g" Dockerfile
+            echo "Dockerfile FROM lines after update:"
+            grep "^FROM" Dockerfile'
+      when: quay_url | length > 0
+      register: r_dockerfile_update
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # block-05/06/07 — build and push patient-portal-frontend
+    # ------------------------------------------------------------------
+    - name: Build and push patient-portal-frontend image
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - |
+            sshpass -p {{ bastion_pass | quote }} \
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=600 \
+            -p {{ bastion_port }} \
+            {{ bastion_user }}@{{ bastion_host }} \
+            'set -e
+            QUAY_URL="{{ quay_url }}"
+            QUAY_USER="{{ quay_user }}"
+            BUILD_DIR=~/demo-applications/image-builds/patient-portal-frontend
+            TARGET=${QUAY_URL}/${QUAY_USER}/patient-portal-frontend:1.0
+            cd ${BUILD_DIR}
+            if podman manifest inspect ${TARGET} --tls-verify=false 2>/dev/null; then
+              echo "patient-portal-frontend:1.0 already in Quay — skipping build/push"
+            else
+              echo "Building ${TARGET} ..."
+              timeout 600 podman build -t ${TARGET} .
+              echo "Pushing ${TARGET} ..."
+              podman push --tls-verify=false ${TARGET}
+              echo "patient-portal-frontend pushed"
+            fi'
+      when: quay_url | length > 0
       register: r_build_push
       ignore_errors: true
 
@@ -240,14 +287,34 @@
       register: r_rekor
       ignore_errors: true
 
+    # Discover Keycloak namespace (keycloak or rhsso)
+    - name: Probe Keycloak namespace candidates
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: route.openshift.io/v1
+        kind: Route
+        namespace: "{{ item }}"
+      register: r_kc_ns_probe
+      loop: "{{ keycloak_namespace_candidates }}"
+      ignore_errors: true
+
+    - name: Set Keycloak namespace fact
+      ansible.builtin.set_fact:
+        keycloak_ns: >-
+          {{ r_kc_ns_probe.results
+             | selectattr('resources', 'defined')
+             | selectattr('resources', 'ne', [])
+             | map(attribute='item')
+             | list | first | default('keycloak') }}
+
     - name: Get Keycloak route for OIDC issuer URL
       kubernetes.core.k8s_info:
         kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
         validate_certs: false
         api_version: route.openshift.io/v1
         kind: Route
-        name: keycloak
-        namespace: "{{ rhsso_namespace }}"
+        namespace: "{{ keycloak_ns }}"
       register: r_keycloak_route
       ignore_errors: true
 
@@ -260,65 +327,70 @@
         rekor_url: >-
           {{ (r_rekor.resources | default([]) | first | default({})).status.url | default('') }}
         oidc_issuer_url: >-
-          https://{{ (r_keycloak_route.resources
-                      | default([]) | first | default({})).spec.host
+          https://{{ (r_keycloak_route.resources | default([])
+                      | selectattr('metadata.name', 'match', '.*keycloak.*')
+                      | list | first | default(
+                        r_keycloak_route.resources | default([]) | first | default({})
+                      )).spec.host
                     | default('') }}/auth/realms/openshift
       ignore_errors: true
 
     # ------------------------------------------------------------------
-    # block-09 / block-10 / block-11 / block-12
-    # Export sigstore env vars, cosign initialize, cosign login, cosign tree
-    # All chained in one k8s_exec so env vars survive between commands.
+    # block-09/10/11/12 — cosign initialize on bastion (if TUF URL available)
     # ------------------------------------------------------------------
-    - name: Export sigstore env vars, initialize cosign, login and run cosign tree
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        namespace: "{{ terminal_ns }}"
-        pod: "{{ terminal_pod }}"
-        command: |
-          sh -c '
-          set -e
-          export TUF_URL="{{ tuf_url }}"
-          export OIDC_ISSUER_URL="{{ oidc_issuer_url }}"
-          export COSIGN_FULCIO_URL="{{ fulcio_url }}"
-          export COSIGN_REKOR_URL="{{ rekor_url }}"
-          export COSIGN_MIRROR="${TUF_URL}"
-          export COSIGN_ROOT="${TUF_URL}/root.json"
-          export COSIGN_OIDC_CLIENT_ID="trusted-artifact-signer"
-          export COSIGN_OIDC_ISSUER="${OIDC_ISSUER_URL}"
-          export COSIGN_CERTIFICATE_OIDC_ISSUER="${OIDC_ISSUER_URL}"
-          export COSIGN_YES="true"
-          export SIGSTORE_FULCIO_URL="${COSIGN_FULCIO_URL}"
-          export SIGSTORE_OIDC_ISSUER="${COSIGN_OIDC_ISSUER}"
-          export SIGSTORE_REKOR_URL="${COSIGN_REKOR_URL}"
-          export REKOR_REKOR_SERVER="${COSIGN_REKOR_URL}"
-          echo "=== TAS endpoint URLs ==="
-          env | grep URL || true
-          echo "=== cosign initialize ==="
-          cosign initialize
-          echo "=== cosign login to Quay ==="
-          cosign login {{ quay_url }} -u {{ quay_user }} -p {{ quay_password }}
-          echo "=== cosign tree (pre-sign state) ==="
-          cosign tree {{ quay_url }}/{{ quay_user }}/patient-portal-frontend:1.0 \
-            --allow-insecure-registry || true
-          '
+    - name: Initialize cosign TUF on bastion
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - |
+            sshpass -p {{ bastion_pass | quote }} \
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=60 \
+            -p {{ bastion_port }} \
+            {{ bastion_user }}@{{ bastion_host }} \
+            'set -e
+            export TUF_URL="{{ tuf_url }}"
+            export OIDC_ISSUER_URL="{{ oidc_issuer_url }}"
+            export COSIGN_FULCIO_URL="{{ fulcio_url }}"
+            export COSIGN_REKOR_URL="{{ rekor_url }}"
+            export COSIGN_MIRROR="${TUF_URL}"
+            export COSIGN_ROOT="${TUF_URL}/root.json"
+            export COSIGN_OIDC_CLIENT_ID="trusted-artifact-signer"
+            export COSIGN_OIDC_ISSUER="${OIDC_ISSUER_URL}"
+            export COSIGN_CERTIFICATE_OIDC_ISSUER="${OIDC_ISSUER_URL}"
+            export COSIGN_YES="true"
+            export SIGSTORE_FULCIO_URL="${COSIGN_FULCIO_URL}"
+            export SIGSTORE_OIDC_ISSUER="${COSIGN_OIDC_ISSUER}"
+            export SIGSTORE_REKOR_URL="${COSIGN_REKOR_URL}"
+            export REKOR_REKOR_SERVER="${COSIGN_REKOR_URL}"
+            echo "=== TAS endpoint URLs ==="
+            env | grep URL || true
+            echo "=== cosign initialize ==="
+            cosign initialize
+            echo "=== cosign login to Quay ==="
+            cosign login {{ quay_url }} -u {{ quay_user }} -p {{ quay_password }}
+            echo "=== cosign tree (pre-sign state) ==="
+            cosign tree {{ quay_url }}/{{ quay_user }}/patient-portal-frontend:1.0 \
+              --allow-insecure-registry || true'
       when:
-        - terminal_pod is defined
-        - terminal_pod | length > 0
-        - quay_url | length > 0
         - tuf_url | length > 0
+        - quay_url | length > 0
         - quay_password | length > 0
       register: r_cosign_init
       ignore_errors: true
+
+    - name: Report TAS URLs not available (skip cosign init)
+      ansible.builtin.debug:
+        msg: >-
+          TUF URL is empty — trusted-artifact-signer may not be deployed yet.
+          cosign initialize skipped. Task 5 (sigstore dir) and Task 6 (TAS CRs) will fail validation.
+      when: tuf_url | length == 0
 
     # ------------------------------------------------------------------
     # block-13 SKIP — cosign sign requires interactive OIDC browser flow
     # ------------------------------------------------------------------
     # SKIP: cosign sign $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
     # Not automatable: requires interactive OIDC browser authentication.
-    # cosign prompts the student to open a Keycloak URL and paste back a
-    # verification code. There is no headless or service-account path for
-    # this Keycloak realm. The student must complete this step manually.
 
     # ------------------------------------------------------------------
     # Final report
@@ -326,15 +398,18 @@
     - name: Report solve status
       ansible.builtin.debug:
         msg: |
-          Terminal pod found : {{ 'ok' if (terminal_pod | default('')) | length > 0 else 'NOT ok — no showroom/wetty pod found' }}
-          Quay URL           : {{ quay_url | default('NOT resolved') }}
-          TUF URL            : {{ tuf_url | default('NOT resolved') }}
-          cosign check       : {{ 'ok' if r_cosign_check.rc | default(1) == 0 else 'check logs' }}
-          Podman login       : {{ 'ok' if r_podman_login.rc | default(1) == 0 else 'check logs' }}
-          Golden image       : {{ 'ok' if r_golden_image.rc | default(1) == 0 else 'check logs' }}
-          Frontend build     : {{ 'ok' if r_build_push.rc | default(1) == 0 else 'check logs — build may take up to 10 min' }}
-          cosign init+login  : {{ 'ok' if r_cosign_init.rc | default(1) == 0 else 'check logs' }}
-          cosign sign        : SKIPPED — requires manual OIDC authentication.
-                               Student must run: cosign sign $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
-                               and complete the Keycloak browser login, then paste the verification code.
-                               Come back and click Validate after the signing step is done.
+          Bastion host      : {{ bastion_host }}:{{ bastion_port }}
+          Quay URL          : {{ quay_url | default('NOT resolved') }}
+          TUF URL           : {{ tuf_url | default('NOT resolved — TAS not deployed') }}
+          cosign check      : {{ 'installed' if 'cosign_missing' not in (r_cosign_check.stdout | default('cosign_missing')) else 'was missing, installed' }}
+          cosign verify     : {{ r_cosign_verify.stdout | default('unknown') | truncate(60) }}
+          Podman login      : {{ 'ok' if r_podman_login.rc | default(1) == 0 else 'FAILED — check logs' }}
+          demo-apps clone   : {{ r_demo_apps_clone.stdout | default('skipped') | truncate(40) }}
+          Dockerfile update : {{ r_dockerfile_update.stdout | default('skipped') | truncate(60) }}
+          Golden image      : {{ 'ok' if r_golden_image.rc | default(1) == 0 else 'FAILED — check logs' }}
+          Frontend build    : {{ 'ok' if r_build_push.rc | default(1) == 0 else 'FAILED — check logs (build may take 10+ min)' }}
+          cosign init       : {{ 'ok' if r_cosign_init is defined and r_cosign_init.rc | default(1) == 0 else 'skipped or FAILED (TUF URL needed)' }}
+          cosign sign       : SKIPPED — requires manual OIDC authentication.
+                              Student must run: cosign sign $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
+                              and complete the Keycloak browser login, then paste the verification code.
+                              Come back and click Validate after the signing step is done.
