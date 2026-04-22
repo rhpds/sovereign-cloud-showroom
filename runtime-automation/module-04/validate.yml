@@ -62,9 +62,9 @@
           }}
 
     # -------------------------------------------------------
-    # Check 4 — Workbench Route object exists
+    # Check 4 — Workbench Route or HTTPRoute exists
     # -------------------------------------------------------
-    - name: Get workbench Route
+    - name: Get workbench Route (OpenShift Route API)
       kubernetes.core.k8s_info:
         kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
         validate_certs: false
@@ -74,6 +74,17 @@
         label_selectors:
           - "app={{ notebook_name }}"
       register: r_route
+      ignore_errors: true
+
+    - name: Get workbench HTTPRoute (Gateway API — used by newer RHOAI)
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        name: "nb-{{ notebook_namespace }}-{{ notebook_name }}"
+        namespace: redhat-ods-applications
+      register: r_httproute
       ignore_errors: true
 
     # -------------------------------------------------------
@@ -122,7 +133,7 @@
             | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
           }}
         _task4_ok: >-
-          {{ r_route.resources | default([]) | length > 0 }}
+          {{ r_route.resources | default([]) | length > 0 or r_httproute.resources | default([]) | length > 0 }}
         _task5_ok: >-
           {{
             workbench_pod | length > 0
@@ -146,13 +157,13 @@
           Task 1: RHOAI operator pod is running in redhat-ods-operator
           Task 2: DataScienceCluster resource exists and is installed
           Task 3: Workbench pod basic-workbench is Running in rhods-notebooks
-          Task 4: Workbench Route exists in rhods-notebooks
+          Task 4: Workbench Route or HTTPRoute exists for basic-workbench
           Task 5: Git repository cloned at {{ notebook_dir }}
           Task 6: Student performance.ipynb found in cloned repository
         fail_msg: |
           {{ 'Task 1: RHOAI operator pod running' if _task1_ok else 'Task 1: RHOAI operator pod NOT found in redhat-ods-operator — RHOAI may not be installed; contact your instructor' }}
           {{ 'Task 2: DataScienceCluster installed' if _task2_ok else 'Task 2: DataScienceCluster resource NOT found — RHOAI installation is incomplete; contact your instructor' }}
           {{ 'Task 3: Workbench pod Running' if _task3_ok else 'Task 3: Workbench pod NOT running — open the RHOAI dashboard and start the basic-workbench workbench, or click Solve' }}
-          {{ 'Task 4: Workbench Route exists' if _task4_ok else 'Task 4: Workbench Route NOT found — workbench may still be starting; wait a minute and click Validate again' }}
+          {{ 'Task 4: Workbench Route/HTTPRoute exists' if _task4_ok else 'Task 4: Workbench Route/HTTPRoute NOT found — workbench may still be starting; wait a minute and click Validate again' }}
           {{ 'Task 5: Git repository cloned' if _task5_ok else 'Task 5: Repository directory missing — open a terminal in the workbench and run: git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git, or click Solve' }}
           {{ 'Task 6: Student performance.ipynb found' if _task6_ok else 'Task 6: Student performance.ipynb NOT found — the git clone may be incomplete; re-run the clone in the workbench terminal, or click Solve' }}
