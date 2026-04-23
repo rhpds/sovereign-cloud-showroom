@@ -444,6 +444,33 @@ fi
 # KeycloakRealm / KeycloakClient: short wait then continue (operator status often lags console). Override: MAX_WAIT_KC_REALM_CLIENT=300
 MAX_WAIT_KC_REALM_CLIENT="${MAX_WAIT_KC_REALM_CLIENT:-30}"
 
+# KeycloakUser: brief poll only (CR is accepted quickly; downstream steps tolerate lag). Override: MAX_WAIT_KC_USER=60
+MAX_WAIT_KC_USER="${MAX_WAIT_KC_USER:-15}"
+
+# One code path for admin / jdoe / user1 so every user behaves the same.
+wait_keycloak_user_brief() {
+    local ns=$1 name=$2
+    local max="${MAX_WAIT_KC_USER}"
+    local w=0
+    if ! [ "${max}" -gt 0 ] 2>/dev/null; then
+        echo "Skipping KeycloakUser '${name}' reconcile wait (MAX_WAIT_KC_USER=${max})."
+        return 0
+    fi
+    echo "Waiting briefly for KeycloakUser '${name}' (max ${max}s, then continue)..."
+    while [ "$w" -lt "$max" ]; do
+        if keycloakuser_is_reconciled "$ns" "$name"; then
+            echo "✓ KeycloakUser '${name}' reconciled"
+            return 0
+        fi
+        sleep 2
+        w=$((w + 2))
+        if [ $((w % 5)) -eq 0 ] && [ "$w" -gt 0 ]; then
+            echo "  Still waiting for '${name}'... (${w}s/${max}s)"
+        fi
+    done
+    echo "Warning: KeycloakUser '${name}' did not report reconciled within ${max}s — continuing anyway."
+}
+
 # Step 3: Ensure OpenShift realm exists (using KeycloakRealm CR)
 echo ""
 echo "Ensuring OpenShift realm exists..."
@@ -611,29 +638,7 @@ KEYCLOAK_USER_PASSWORD="116608"  # Default password, can be changed
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME}' already exists"
-    
-    # Wait for user to be ready
-    echo "Waiting for user to be ready..."
-    MAX_WAIT_USER=120
-    WAIT_COUNT=0
-    USER_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
-            USER_READY=true
-            echo "✓ User is ready"
-            break
-        fi
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
-        fi
-    done
-    
-    if [ "$USER_READY" = false ]; then
-        echo "Warning: User did not become ready within ${MAX_WAIT_USER} seconds, but continuing..."
-    fi
+    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"
 else
     echo "Creating KeycloakUser CR '${KEYCLOAK_USER_NAME}'..."
     
@@ -667,29 +672,7 @@ EOF
     fi
     
     echo "✓ KeycloakUser CR created successfully"
-    
-    # Wait for user to be ready
-    echo "Waiting for user to be ready..."
-    MAX_WAIT_USER=120
-    WAIT_COUNT=0
-    USER_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
-            USER_READY=true
-            echo "✓ User is ready"
-            break
-        fi
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
-        fi
-    done
-    
-    if [ "$USER_READY" = false ]; then
-        echo "Warning: User did not become ready within ${MAX_WAIT_USER} seconds, but continuing..."
-    fi
+    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"
 fi
 
 # Step 3b: Create jdoe Keycloak User for signing
@@ -703,29 +686,7 @@ KEYCLOAK_USER_PASSWORD_JDOE="secure"
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_JDOE}' already exists"
-    
-    # Wait for user to be ready
-    echo "Waiting for user to be ready..."
-    MAX_WAIT_USER=120
-    WAIT_COUNT=0
-    USER_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
-            USER_READY=true
-            echo "✓ User is ready"
-            break
-        fi
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
-        fi
-    done
-    
-    if [ "$USER_READY" = false ]; then
-        echo "Warning: User did not become ready within ${MAX_WAIT_USER} seconds, but continuing..."
-    fi
+    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"
 else
     echo "Creating KeycloakUser CR '${KEYCLOAK_USER_NAME_JDOE}'..."
     
@@ -758,29 +719,7 @@ EOF
     fi
     
     echo "✓ KeycloakUser CR created successfully"
-    
-    # Wait for user to be ready
-    echo "Waiting for user to be ready..."
-    MAX_WAIT_USER=120
-    WAIT_COUNT=0
-    USER_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
-            USER_READY=true
-            echo "✓ User is ready"
-            break
-        fi
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
-        fi
-    done
-    
-    if [ "$USER_READY" = false ]; then
-        echo "Warning: User did not become ready within ${MAX_WAIT_USER} seconds, but continuing..."
-    fi
+    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"
 fi
 
 # Step 3c: Create user1 Keycloak User
@@ -792,29 +731,7 @@ USER_YAML_FILE="${SCRIPT_DIR}/keycloak-user-user1.yaml"
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_USER1}' already exists"
-    
-    # Wait for user to be ready
-    echo "Waiting for user to be ready..."
-    MAX_WAIT_USER=120
-    WAIT_COUNT=0
-    USER_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"; then
-            USER_READY=true
-            echo "✓ User is ready"
-            break
-        fi
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
-        fi
-    done
-    
-    if [ "$USER_READY" = false ]; then
-        echo "Warning: User did not become ready within ${MAX_WAIT_USER} seconds, but continuing..."
-    fi
+    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"
 else
     echo "Creating KeycloakUser CR '${KEYCLOAK_USER_NAME_USER1}' from ${USER_YAML_FILE}..."
     
@@ -829,29 +746,7 @@ else
     fi
     
     echo "✓ KeycloakUser CR created successfully"
-    
-    # Wait for user to be ready
-    echo "Waiting for user to be ready..."
-    MAX_WAIT_USER=120
-    WAIT_COUNT=0
-    USER_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"; then
-            USER_READY=true
-            echo "✓ User is ready"
-            break
-        fi
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
-        fi
-    done
-    
-    if [ "$USER_READY" = false ]; then
-        echo "Warning: User did not become ready within ${MAX_WAIT_USER} seconds, but continuing..."
-    fi
+    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"
 fi
 
 # Step 4: Create OAuth Client in Red Hat SSO (Keycloak) for Trusted Artifact Signer
