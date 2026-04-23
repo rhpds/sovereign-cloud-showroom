@@ -14,7 +14,10 @@
 #   --rhtas-namespace NS       RHTAS deploy namespace (default: trusted-artifact-signer)
 #   --delete-rhsso-namespace   Delete the entire rhsso namespace (RH-SSO operator + Keycloak from 01-keycloak.sh)
 #   --delete-keycloak-namespace Delete the entire keycloak namespace (RHBK instance — very destructive)
+#   --remove-rhsso-operator    Delete RH-SSO Subscription/CatalogSource/OperatorGroup in rhsso (keep namespace)
+#   --remove-keycloak-operators Remove Keycloak operator OLM (rhsso + keycloak namespaces; opt-in)
 #   --remove-local-tools       Best-effort: remove cosign-env.sh and cosign/gitsign from /usr/local/bin if present
+# RHTAS: after Subscription delete, leftover CSVs in openshift-operators are force-removed so the operator UI clears.
 
 set -u
 
@@ -39,6 +42,7 @@ DELETE_RHSSO_NS=false
 DELETE_KEYCLOAK_NS=false
 REMOVE_LOCAL_TOOLS=false
 REMOVE_RHSSO_OPERATOR=false
+REMOVE_KEYCLOAK_OPERATORS=false
 RHTAS_NAMESPACE="${RHTAS_TARGET_NAMESPACE:-trusted-artifact-signer}"
 KEYCLOAK_NS_ARG=""
 
@@ -50,13 +54,14 @@ Usage: cleanup.sh [options]
 
   --yes, -y                 Do not prompt for confirmation
   --skip-deploy             Keep trusted-artifact-signer namespace and workloads
-  --skip-rhtas-operator     Keep RHTAS OLM Subscription in openshift-operators
+  --skip-rhtas-operator     Keep RHTAS Subscription/CSV in openshift-operators (default removes Sub + leftover CSVs)
   --skip-keycloak-resources Keep KeycloakRealm/Client/User CRs from 02-operator.sh
   --keycloak-namespace NS   Namespace for Keycloak CR cleanup (overrides auto-detect)
   --rhtas-namespace NS      RHTAS stack namespace (default: trusted-artifact-signer)
   --delete-rhsso-namespace  Delete entire rhsso namespace (RH-SSO path from 01-keycloak.sh)
   --delete-keycloak-namespace Delete entire keycloak namespace (RHBK — very destructive)
   --remove-rhsso-operator   Delete Subscription/CatalogSource/OperatorGroup in rhsso only (keep namespace)
+  --remove-keycloak-operators  Remove Keycloak OLM (rhsso-operator stack and/or rhbk-operator in keycloak)
   --remove-local-tools      Remove cosign-env.sh and cosign/gitsign under /usr/local/bin if present
 
 Environment (optional): KUBE_CONTEXT, KEYCLOAK_NAMESPACE_OVERRIDE, RHTAS_TARGET_NAMESPACE
@@ -73,6 +78,7 @@ while [[ $# -gt 0 ]]; do
         --delete-rhsso-namespace) DELETE_RHSSO_NS=true; shift ;;
         --delete-keycloak-namespace) DELETE_KEYCLOAK_NS=true; shift ;;
         --remove-rhsso-operator) REMOVE_RHSSO_OPERATOR=true; shift ;;
+        --remove-keycloak-operators) REMOVE_KEYCLOAK_OPERATORS=true; shift ;;
         --remove-local-tools) REMOVE_LOCAL_TOOLS=true; shift ;;
         --rhtas-namespace) RHTAS_NAMESPACE="${2:?}"; shift 2 ;;
         --keycloak-namespace) KEYCLOAK_NS_ARG="${2:?}"; shift 2 ;;
@@ -134,6 +140,67 @@ discover_keycloak_namespace_for_cleanup() {
 
 OLM_SUB="subscription.operators.coreos.com"
 OPERATOR_NS="openshift-operators"
+CSV_API="clusterserviceversion.operators.coreos.com"
+
+# Orphaned RHTAS OLM after Subscription delete (CSV / Operator API objects often linger).
+rhtas_force_remove_olm_leavings() {
+    local ns=$1 cname lc
+    log "Removing leftover Trusted Artifact Signer / RHTAS CSVs in ${ns}..."
+    while read -r cname _; do
+        [ -z "$cname" ] && continue
+        lc=$(echo "$cname" | tr '[:upper:]' '[:lower:]')
+        case "$lc" in *rhtas*|*trusted-artifact-signer*)
+            log "  deleting ${CSV_API}/${cname}"
+            oc delete "${CSV_API}/$cname" -n "$ns" --ignore-not-found --wait=false 2>/dev/null || true
+            ;;
+        esac
+    done < <(oc get csv -n "$ns" --no-headers 2>/dev/null || true)
+
+    if oc get crd operators.operators.coreos.com &>/dev/null; then
+        while read -r oname _; do
+            [ -z "$oname" ] && continue
+            lc=$(echo "$oname" | tr '[:upper:]' '[:lower:]')
+            case "$lc" in *rhtas*|*trusted-artifact*)
+                log "  deleting operators.operators.coreos.com/${oname}"
+                oc delete "operators.operators.coreos.com/$oname" -n "$ns" --ignore-not-found --wait=false 2>/dev/null || true
+                ;;
+            esac
+        done < <(oc get operators.operators.coreos.com -n "$ns" --no-headers 2>/dev/null || true)
+    fi
+}
+
+# Keycloak operators installed by this lab (01-keycloak rhsso path; common RHBK subscription in keycloak).
+remove_keycloak_operator_olm() {
+    local cname lc
+    if oc get namespace rhsso &>/dev/null; then
+        log "Removing RH-SSO Keycloak operator OLM in rhsso (Subscription, CSV, CatalogSource, OperatorGroup)..."
+        oc delete "${OLM_SUB}" rhsso-operator -n rhsso --ignore-not-found --wait=false 2>/dev/null || true
+        while read -r cname _; do
+            [ -z "$cname" ] && continue
+            lc=$(echo "$cname" | tr '[:upper:]' '[:lower:]')
+            case "$lc" in *rhsso*)
+                oc delete "${CSV_API}/$cname" -n rhsso --ignore-not-found --wait=false 2>/dev/null || true
+                ;;
+            esac
+        done < <(oc get csv -n rhsso --no-headers 2>/dev/null || true)
+        oc delete catalogsource rhsso-operator-catalogsource -n rhsso --ignore-not-found --wait=false 2>/dev/null || true
+        oc delete operatorgroup rhsso-operator-group -n rhsso --ignore-not-found --wait=false 2>/dev/null || true
+    fi
+    if oc get namespace keycloak &>/dev/null; then
+        log "Removing Red Hat build of Keycloak operator OLM in keycloak (Subscription + matching CSVs)..."
+        for _sub in rhbk-operator keycloak-operator; do
+            oc delete "${OLM_SUB}" "$_sub" -n keycloak --ignore-not-found --wait=false 2>/dev/null || true
+        done
+        while read -r cname _; do
+            [ -z "$cname" ] && continue
+            lc=$(echo "$cname" | tr '[:upper:]' '[:lower:]')
+            case "$lc" in *keycloak*|*rhbk*)
+                oc delete "${CSV_API}/$cname" -n keycloak --ignore-not-found --wait=false 2>/dev/null || true
+                ;;
+            esac
+        done < <(oc get csv -n keycloak --no-headers 2>/dev/null || true)
+    fi
+}
 
 # --- 1) RHTAS workload namespace (03-deploy.sh) ---
 if [ "$SKIP_DEPLOY" != true ]; then
@@ -164,7 +231,7 @@ fi
 if [ "$SKIP_RHTAS_OPERATOR" != true ]; then
     log "Removing RHTAS operator Subscription in ${OPERATOR_NS}..."
     if oc get "${OLM_SUB}" trusted-artifact-signer -n "$OPERATOR_NS" &>/dev/null; then
-        oc delete "${OLM_SUB}" trusted-artifact-signer -n "$OPERATOR_NS" --ignore-not-found --wait=true 2>/dev/null || true
+        oc delete "${OLM_SUB}" trusted-artifact-signer -n "$OPERATOR_NS" --ignore-not-found --wait=false 2>/dev/null || true
         log "Subscription trusted-artifact-signer removed (OLM will tear down the CSV when finished)."
     else
         log "No Subscription trusted-artifact-signer in ${OPERATOR_NS}."
@@ -176,6 +243,7 @@ if [ "$SKIP_RHTAS_OPERATOR" != true ]; then
         warn "Deleting stray RHTAS subscription ${ns}/${name}"
         oc delete "${OLM_SUB}" "$name" -n "$ns" --ignore-not-found --wait=false 2>/dev/null || true
     done < <(oc get "${OLM_SUB}" -A --no-headers 2>/dev/null | awk '$2=="trusted-artifact-signer" {print $1, $2}' || true)
+    rhtas_force_remove_olm_leavings "$OPERATOR_NS"
 else
     log "Skipping RHTAS operator (--skip-rhtas-operator)."
 fi
@@ -228,11 +296,16 @@ if [ "$DELETE_KEYCLOAK_NS" = true ]; then
 fi
 
 # --- 5) Optional: RH-SSO operator resources without deleting namespace ---
-if [ "$DELETE_RHSSO_NS" != true ] && [ "$REMOVE_RHSSO_OPERATOR" = true ]; then
+if [ "$DELETE_RHSSO_NS" != true ] && [ "$REMOVE_RHSSO_OPERATOR" = true ] && [ "$REMOVE_KEYCLOAK_OPERATORS" != true ]; then
     log "Removing Subscription/CatalogSource/OperatorGroup in rhsso (namespace retained)."
     oc delete "${OLM_SUB}" rhsso-operator -n rhsso --ignore-not-found --wait=false 2>/dev/null || true
     oc delete catalogsource rhsso-operator-catalogsource -n rhsso --ignore-not-found --wait=false 2>/dev/null || true
     oc delete operatorgroup rhsso-operator-group -n rhsso --ignore-not-found --wait=false 2>/dev/null || true
+fi
+
+# --- 5b) Optional: remove Keycloak operator installs (RH-SSO + RHBK OLM) ---
+if [ "$REMOVE_KEYCLOAK_OPERATORS" = true ]; then
+    remove_keycloak_operator_olm
 fi
 
 # --- 6) Generated repo file ---
@@ -254,5 +327,6 @@ if [ "$REMOVE_LOCAL_TOOLS" = true ]; then
 fi
 
 log "Cleanup finished."
+log "If the RHTAS or Keycloak operator still appears in Operators: re-run with --remove-keycloak-operators (Keycloak OLM) and ensure section 2 ran (no --skip-rhtas-operator)."
 log "If a namespace is stuck Terminating: oc get namespace <name> -o yaml | check finalizers"
 log "Re-install: ${SCRIPT_DIR}/setup.sh"
