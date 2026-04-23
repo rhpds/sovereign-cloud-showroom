@@ -10,7 +10,7 @@ content:
 
 ui:
   bundle:
-    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/v2.0.2/ui-bundle.zip
+    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/summit-2026/ui-bundle.zip
     snapshot: true
   supplemental_files:
     - path: ./content/supplemental-ui
