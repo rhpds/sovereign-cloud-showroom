@@ -70,6 +70,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-deploy             Skip RHTAS component deployment"
             echo "  --help, -h                Show this help message"
             echo ""
+            echo "To remove what this installer created on the cluster, see: ${SCRIPT_DIR}/cleanup.sh --help"
+            echo ""
             echo "This script installs and deploys Red Hat Trusted Artifact Signer (RHTAS)"
             echo "in the following order:"
             echo "  0. Workstation tools (podman, cosign, gitsign)"

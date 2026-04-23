@@ -110,6 +110,133 @@ discover_keycloak_namespace() {
     return 1
 }
 
+# --- Keycloak CR readiness: legacy keycloak.org vs Red Hat build (k8s.keycloak.org) ---
+_kc_condition_true() {
+    local res=$1 ns=$2 ctype=$3
+    local st
+    st=$(oc get "$res" -n "$ns" -o jsonpath="{.status.conditions[?(@.type==\"$ctype\")].status}" 2>/dev/null || true)
+    [ "$st" = "True" ]
+}
+
+# Realm: RHBK uses conditions (Ready/Done) and/or phase Ready; RH-SSO uses .status.ready and phase reconciled.
+keycloakrealm_is_reconciled() {
+    local ns=$1 name=$2
+    local ready_stat phase phase_lc
+    if oc get "keycloakrealms.k8s.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        _kc_condition_true "keycloakrealms.k8s.keycloak.org/$name" "$ns" "Ready" && return 0
+        _kc_condition_true "keycloakrealms.k8s.keycloak.org/$name" "$ns" "Done" && return 0
+        phase=$(oc get "keycloakrealms.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+        phase_lc=$(echo "$phase" | tr '[:upper:]' '[:lower:]')
+        case "$phase_lc" in ready|done|reconciled) return 0 ;; esac
+        return 1
+    fi
+    if oc get "keycloakrealms.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        ready_stat=$(oc get "keycloakrealms.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        phase_lc=$(echo "$(oc get "keycloakrealms.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        [ "$ready_stat" = "true" ] && return 0
+        [ "$phase_lc" = "reconciled" ] && return 0
+        return 1
+    fi
+    if oc get "keycloakrealm/$name" -n "$ns" &>/dev/null; then
+        _kc_condition_true "keycloakrealm/$name" "$ns" "Ready" && return 0
+        _kc_condition_true "keycloakrealm/$name" "$ns" "Done" && return 0
+        ready_stat=$(oc get "keycloakrealm/$name" -n "$ns" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        phase_lc=$(echo "$(oc get "keycloakrealm/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        [ "$ready_stat" = "true" ] && return 0
+        [ "$phase_lc" = "reconciled" ] && return 0
+        case "$phase_lc" in ready|done) return 0 ;; esac
+    fi
+    return 1
+}
+
+keycloakrealm_cr_exists() {
+    local ns=$1 name=$2
+    oc get "keycloakrealms.k8s.keycloak.org/$name" -n "$ns" &>/dev/null && return 0
+    oc get "keycloakrealms.keycloak.org/$name" -n "$ns" &>/dev/null && return 0
+    oc get "keycloakrealm/$name" -n "$ns" &>/dev/null && return 0
+    return 1
+}
+
+keycloakrealm_status_hint() {
+    local ns=$1 name=$2
+    if oc get "keycloakrealms.k8s.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        oc get "keycloakrealms.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.message}{"\n"}{end}' 2>/dev/null | head -3 || true
+        oc get "keycloakrealms.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='phase={.status.phase}{"\n"}' 2>/dev/null || true
+    elif oc get "keycloakrealms.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        oc get "keycloakrealms.keycloak.org/$name" -n "$ns" -o jsonpath='ready={.status.ready} phase={.status.phase}{"\n"}' 2>/dev/null || true
+    else
+        oc get "keycloakrealm/$name" -n "$ns" -o yaml 2>/dev/null | grep -A 12 '^status:' | head -14 || true
+    fi
+}
+
+keycloakclient_is_reconciled() {
+    local ns=$1 name=$2
+    local ready_stat phase_lc
+    if oc get "keycloakclients.k8s.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        _kc_condition_true "keycloakclients.k8s.keycloak.org/$name" "$ns" "Ready" && return 0
+        _kc_condition_true "keycloakclients.k8s.keycloak.org/$name" "$ns" "Done" && return 0
+        phase_lc=$(echo "$(oc get "keycloakclients.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        case "$phase_lc" in ready|done|reconciled) return 0 ;; esac
+        return 1
+    fi
+    if oc get "keycloakclients.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        ready_stat=$(oc get "keycloakclients.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        phase_lc=$(echo "$(oc get "keycloakclients.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        [ "$ready_stat" = "true" ] && return 0
+        [ "$phase_lc" = "reconciled" ] && return 0
+        return 1
+    fi
+    if oc get "keycloakclient/$name" -n "$ns" &>/dev/null; then
+        _kc_condition_true "keycloakclient/$name" "$ns" "Ready" && return 0
+        ready_stat=$(oc get "keycloakclient/$name" -n "$ns" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+        phase_lc=$(echo "$(oc get "keycloakclient/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        [ "$ready_stat" = "true" ] && return 0
+        [ "$phase_lc" = "reconciled" ] && return 0
+        case "$phase_lc" in ready|done) return 0 ;; esac
+    fi
+    return 1
+}
+
+keycloakclient_cr_exists() {
+    local ns=$1 name=$2
+    oc get "keycloakclients.k8s.keycloak.org/$name" -n "$ns" &>/dev/null && return 0
+    oc get "keycloakclients.keycloak.org/$name" -n "$ns" &>/dev/null && return 0
+    oc get "keycloakclient/$name" -n "$ns" &>/dev/null && return 0
+    return 1
+}
+
+keycloakuser_is_reconciled() {
+    local ns=$1 name=$2
+    local phase_lc
+    if oc get "keycloakusers.k8s.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        _kc_condition_true "keycloakusers.k8s.keycloak.org/$name" "$ns" "Ready" && return 0
+        _kc_condition_true "keycloakusers.k8s.keycloak.org/$name" "$ns" "Done" && return 0
+        phase_lc=$(echo "$(oc get "keycloakusers.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        case "$phase_lc" in reconciled|ready|done) return 0 ;; esac
+        return 1
+    fi
+    if oc get "keycloakusers.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        phase_lc=$(echo "$(oc get "keycloakusers.keycloak.org/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        [ "$phase_lc" = "reconciled" ] && return 0
+        return 1
+    fi
+    if oc get "keycloakuser/$name" -n "$ns" &>/dev/null; then
+        _kc_condition_true "keycloakuser/$name" "$ns" "Ready" && return 0
+        phase_lc=$(echo "$(oc get "keycloakuser/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)" | tr '[:upper:]' '[:lower:]')
+        [ "$phase_lc" = "reconciled" ] && return 0
+        case "$phase_lc" in ready|done) return 0 ;; esac
+    fi
+    return 1
+}
+
+keycloakuser_cr_exists() {
+    local ns=$1 name=$2
+    oc get "keycloakusers.k8s.keycloak.org/$name" -n "$ns" &>/dev/null && return 0
+    oc get "keycloakusers.keycloak.org/$name" -n "$ns" &>/dev/null && return 0
+    oc get "keycloakuser/$name" -n "$ns" &>/dev/null && return 0
+    return 1
+}
+
 # Step 1: Get Red Hat SSO (Keycloak) OIDC Issuer URL
 echo "Retrieving Red Hat SSO (Keycloak) OIDC Issuer URL..."
 
@@ -320,21 +447,18 @@ echo "Ensuring OpenShift realm exists..."
 REALM="openshift"
 REALM_CR_NAME="openshift"
 
-# Check if KeycloakRealm CR exists
-if oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+# Check if KeycloakRealm CR exists (k8s.keycloak.org or legacy keycloak.org)
+if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
     echo "✓ KeycloakRealm CR '${REALM_CR_NAME}' already exists"
     
-    # Wait for realm to be ready/reconciled
+    # Wait for realm to be ready/reconciled (RHBK: conditions Ready/Done; RH-SSO: .status.ready / phase reconciled)
     echo "Waiting for realm to be reconciled..."
     MAX_WAIT_REALM=300
     WAIT_COUNT=0
     REALM_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_REALM ]; do
-        REALM_STATUS=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        REALM_PHASE=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-        if [ "$REALM_STATUS" = "true" ] || [ "$REALM_PHASE" = "reconciled" ]; then
+        if keycloakrealm_is_reconciled "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
             REALM_READY=true
             echo "✓ Realm is reconciled"
             break
@@ -342,7 +466,8 @@ if oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) - Phase: ${REALM_PHASE:-unknown}, Ready: ${REALM_STATUS:-false}"
+            echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) — status:"
+            keycloakrealm_status_hint "$KEYCLOAK_NS" "$REALM_CR_NAME" | sed 's/^/    | /' || true
         fi
     done
     
@@ -384,10 +509,7 @@ EOF
     REALM_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_REALM ]; do
-        REALM_STATUS=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        REALM_PHASE=$(oc get keycloakrealm $REALM_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-        if [ "$REALM_STATUS" = "true" ] || [ "$REALM_PHASE" = "reconciled" ]; then
+        if keycloakrealm_is_reconciled "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
             REALM_READY=true
             echo "✓ Realm is reconciled"
             break
@@ -395,7 +517,8 @@ EOF
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) - Phase: ${REALM_PHASE:-unknown}, Ready: ${REALM_STATUS:-false}"
+            echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) — status:"
+            keycloakrealm_status_hint "$KEYCLOAK_NS" "$REALM_CR_NAME" | sed 's/^/    | /' || true
         fi
     done
     
@@ -410,7 +533,7 @@ echo "Creating OpenShift OAuth Client..."
 CLIENT_CR_NAME_OCP="openshift"
 CLIENT_YAML_FILE="${SCRIPT_DIR}/keycloak-client-openshift.yaml"
 
-if oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME_OCP}' already exists"
     
     # Wait for client to be ready/reconciled
@@ -420,10 +543,7 @@ if oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" >/dev/null 2>&1; 
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-        if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
+        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
             CLIENT_READY=true
             echo "✓ Client is reconciled"
             break
@@ -431,7 +551,7 @@ if oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" >/dev/null 2>&1; 
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s) - Phase: ${CLIENT_PHASE:-unknown}, Ready: ${CLIENT_STATUS:-false}"
+            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
@@ -460,10 +580,7 @@ else
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME_OCP -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-        if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
+        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
             CLIENT_READY=true
             echo "✓ Client is reconciled"
             break
@@ -471,7 +588,7 @@ else
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s) - Phase: ${CLIENT_PHASE:-unknown}, Ready: ${CLIENT_STATUS:-false}"
+            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
@@ -489,7 +606,7 @@ KEYCLOAK_USER_EMAIL="admin@demo.redhat.com"
 KEYCLOAK_USER_PASSWORD="116608"  # Default password, can be changed
 
 # Check if KeycloakUser CR already exists
-if oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME}' already exists"
     
     # Wait for user to be ready
@@ -499,8 +616,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; th
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        if [ "$USER_PHASE" = "reconciled" ]; then
+        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
             USER_READY=true
             echo "✓ User is ready"
             break
@@ -508,7 +624,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; th
         sleep 2
         WAIT_COUNT=$((WAIT_COUNT + 2))
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s) - Phase: ${USER_PHASE:-unknown}"
+            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
         fi
     done
     
@@ -556,8 +672,7 @@ EOF
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        if [ "$USER_PHASE" = "reconciled" ]; then
+        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
             USER_READY=true
             echo "✓ User is ready"
             break
@@ -565,7 +680,7 @@ EOF
         sleep 2
         WAIT_COUNT=$((WAIT_COUNT + 2))
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s) - Phase: ${USER_PHASE:-unknown}"
+            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
         fi
     done
     
@@ -583,7 +698,7 @@ KEYCLOAK_USER_EMAIL_JDOE="jdoe@redhat.com"
 KEYCLOAK_USER_PASSWORD_JDOE="secure"
 
 # Check if KeycloakUser CR already exists
-if oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_JDOE}' already exists"
     
     # Wait for user to be ready
@@ -593,8 +708,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" >/dev/null 2>&
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        if [ "$USER_PHASE" = "reconciled" ]; then
+        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
             USER_READY=true
             echo "✓ User is ready"
             break
@@ -602,7 +716,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" >/dev/null 2>&
         sleep 2
         WAIT_COUNT=$((WAIT_COUNT + 2))
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s) - Phase: ${USER_PHASE:-unknown}"
+            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
         fi
     done
     
@@ -649,8 +763,7 @@ EOF
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_JDOE -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        if [ "$USER_PHASE" = "reconciled" ]; then
+        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
             USER_READY=true
             echo "✓ User is ready"
             break
@@ -658,7 +771,7 @@ EOF
         sleep 2
         WAIT_COUNT=$((WAIT_COUNT + 2))
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s) - Phase: ${USER_PHASE:-unknown}"
+            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
         fi
     done
     
@@ -674,7 +787,7 @@ KEYCLOAK_USER_NAME_USER1="user1"
 USER_YAML_FILE="${SCRIPT_DIR}/keycloak-user-user1.yaml"
 
 # Check if KeycloakUser CR already exists
-if oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_USER1}' already exists"
     
     # Wait for user to be ready
@@ -684,8 +797,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" >/dev/null 2>
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        if [ "$USER_PHASE" = "reconciled" ]; then
+        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"; then
             USER_READY=true
             echo "✓ User is ready"
             break
@@ -693,7 +805,7 @@ if oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" >/dev/null 2>
         sleep 2
         WAIT_COUNT=$((WAIT_COUNT + 2))
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s) - Phase: ${USER_PHASE:-unknown}"
+            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
         fi
     done
     
@@ -722,8 +834,7 @@ else
     USER_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_USER ]; do
-        USER_PHASE=$(oc get keycloakuser $KEYCLOAK_USER_NAME_USER1 -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        if [ "$USER_PHASE" = "reconciled" ]; then
+        if keycloakuser_is_reconciled "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"; then
             USER_READY=true
             echo "✓ User is ready"
             break
@@ -731,7 +842,7 @@ else
         sleep 2
         WAIT_COUNT=$((WAIT_COUNT + 2))
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s) - Phase: ${USER_PHASE:-unknown}"
+            echo "  Still waiting for user to be ready... (${WAIT_COUNT}s/${MAX_WAIT_USER}s)"
         fi
     done
     
@@ -747,7 +858,7 @@ OIDC_CLIENT_ID="trusted-artifact-signer"
 CLIENT_CR_NAME="trusted-artifact-signer"
 
 # Check if KeycloakClient CR already exists
-if oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME}' already exists"
     
     # Wait for client to be ready/reconciled
@@ -757,10 +868,7 @@ if oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-        if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
+        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
             CLIENT_READY=true
             echo "✓ Client is reconciled"
             break
@@ -768,7 +876,7 @@ if oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s) - Phase: ${CLIENT_PHASE:-unknown}, Ready: ${CLIENT_STATUS:-false}"
+            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
@@ -846,10 +954,7 @@ EOF
     CLIENT_READY=false
     
     while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        CLIENT_STATUS=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
-        CLIENT_PHASE=$(oc get keycloakclient $CLIENT_CR_NAME -n "$KEYCLOAK_NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-        if [ "$CLIENT_STATUS" = "true" ] || [ "$CLIENT_PHASE" = "reconciled" ]; then
+        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
             CLIENT_READY=true
             echo "✓ Client is reconciled"
             break
@@ -857,7 +962,7 @@ EOF
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s) - Phase: ${CLIENT_PHASE:-unknown}, Ready: ${CLIENT_STATUS:-false}"
+            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
