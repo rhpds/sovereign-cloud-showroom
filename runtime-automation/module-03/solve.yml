@@ -318,6 +318,25 @@
       register: r_keycloak_route
       ignore_errors: true
 
+    - name: Set Keycloak route host for OIDC
+      ansible.builtin.set_fact:
+        keycloak_route_host: >-
+          {{ (r_keycloak_route.resources | default([])
+              | selectattr('metadata.name', 'match', '.*keycloak.*')
+              | list | first | default(
+                r_keycloak_route.resources | default([]) | first | default({})
+              )).spec.host | default('') }}
+
+    - name: Probe Keycloak OIDC discovery (Quarkus /realms/ vs legacy /auth/realms/)
+      ansible.builtin.uri:
+        url: "https://{{ keycloak_route_host }}/realms/openshift/.well-known/openid-configuration"
+        validate_certs: false
+        method: GET
+        status_code: [200]
+      register: r_oidc_quarkus
+      when: keycloak_route_host | length > 0
+      ignore_errors: true
+
     - name: Set TAS / OIDC URL facts
       ansible.builtin.set_fact:
         tuf_url: >-
@@ -327,12 +346,16 @@
         rekor_url: >-
           {{ (r_rekor.resources | default([]) | first | default({})).status.url | default('') }}
         oidc_issuer_url: >-
-          https://{{ (r_keycloak_route.resources | default([])
-                      | selectattr('metadata.name', 'match', '.*keycloak.*')
-                      | list | first | default(
-                        r_keycloak_route.resources | default([]) | first | default({})
-                      )).spec.host
-                    | default('') }}/auth/realms/openshift
+          {% if keycloak_route_host | default('') | length == 0 %}
+          {{ '' }}
+          {% elif r_oidc_quarkus is defined
+                and (r_oidc_quarkus.status | default(0)) == 200
+                and not (r_oidc_quarkus.failed | default(false))
+                and not (r_oidc_quarkus.skipped | default(false)) %}
+          https://{{ keycloak_route_host }}/realms/openshift
+          {% else %}
+          https://{{ keycloak_route_host }}/auth/realms/openshift
+          {% endif %}
       ignore_errors: true
 
     # ------------------------------------------------------------------

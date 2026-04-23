@@ -110,6 +110,35 @@ discover_keycloak_namespace() {
     return 1
 }
 
+# RHBK / Keycloak Quarkus: https://HOST/realms/REALM — legacy RH-SSO: https://HOST/auth/realms/REALM
+discover_keycloak_oidc_issuer_url() {
+    local host=$1
+    local realm=${2:-openshift}
+    local base="https://${host}"
+    local disco_mod="${base}/realms/${realm}/.well-known/openid-configuration"
+    local disco_legacy="${base}/auth/realms/${realm}/.well-known/openid-configuration"
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fsS --connect-timeout 5 --max-time 15 "$disco_mod" 2>/dev/null | grep -q '"issuer"'; then
+            echo "${base}/realms/${realm}"
+            return 0
+        fi
+        if curl -fsS --connect-timeout 5 --max-time 15 "$disco_legacy" 2>/dev/null | grep -q '"issuer"'; then
+            echo "${base}/auth/realms/${realm}"
+            return 0
+        fi
+    fi
+    if oc get keycloaks.k8s.keycloak.org -A --no-headers 2>/dev/null | grep -q .; then
+        echo "${base}/realms/${realm}"
+        return 0
+    fi
+    if oc get keycloak.k8s.keycloak.org -A --no-headers 2>/dev/null | grep -q .; then
+        echo "${base}/realms/${realm}"
+        return 0
+    fi
+    echo "${base}/auth/realms/${realm}"
+    return 0
+}
+
 # --- Keycloak CR readiness: legacy keycloak.org vs Red Hat build (k8s.keycloak.org) ---
 _kc_condition_true() {
     local res=$1 ns=$2 ctype=$3
@@ -237,6 +266,103 @@ keycloakuser_cr_exists() {
     return 1
 }
 
+keycloakclient_status_hint() {
+    local ns=$1 name=$2
+    if oc get "keycloakclients.k8s.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        oc get "keycloakclients.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.message}{"\n"}{end}' 2>/dev/null | head -5 || true
+        oc get "keycloakclients.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='phase={.status.phase}{"\n"}' 2>/dev/null || true
+    elif oc get "keycloakclients.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        oc get "keycloakclients.keycloak.org/$name" -n "$ns" -o jsonpath='ready={.status.ready} phase={.status.phase}{"\n"}' 2>/dev/null || true
+    else
+        oc get "keycloakclient/$name" -n "$ns" -o yaml 2>/dev/null | grep -A 14 '^status:' | head -16 || true
+    fi
+}
+
+keycloakuser_status_hint() {
+    local ns=$1 name=$2
+    if oc get "keycloakusers.k8s.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        oc get "keycloakusers.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.message}{"\n"}{end}' 2>/dev/null | head -5 || true
+    elif oc get "keycloakusers.keycloak.org/$name" -n "$ns" &>/dev/null; then
+        oc get "keycloakusers.keycloak.org/$name" -n "$ns" -o jsonpath='phase={.status.phase}{"\n"}' 2>/dev/null || true
+    else
+        oc get "keycloakuser/$name" -n "$ns" -o yaml 2>/dev/null | grep -A 14 '^status:' | head -16 || true
+    fi
+}
+
+# Block until reconciled; exit 1 on timeout (no warn-and-continue).
+wait_keycloak_realm_reconciled_or_exit() {
+    local ns=$1 name=$2
+    local max="${MAX_WAIT_KC_REALM_CLIENT}"
+    local w=0
+    echo "Waiting for KeycloakRealm '${name}' to reconcile (required; max ${max}s)..."
+    while [ "$w" -lt "$max" ]; do
+        if keycloakrealm_is_reconciled "$ns" "$name"; then
+            echo "✓ Realm '${name}' is reconciled"
+            return 0
+        fi
+        sleep 5
+        w=$((w + 5))
+        if [ $((w % 10)) -eq 0 ] && [ "$w" -gt 0 ]; then
+            echo "  Still waiting for realm... (${w}s/${max}s) — status:"
+            keycloakrealm_status_hint "$ns" "$name" | sed 's/^/    | /' || true
+        fi
+    done
+    echo "Error: KeycloakRealm '${name}' did not reconcile within ${max}s."
+    keycloakrealm_status_hint "$ns" "$name" | sed 's/^/  /' || true
+    echo "  Try: oc describe keycloakrealm -n ${ns} ${name}  (or keycloakrealms.k8s.keycloak.org/${name})"
+    exit 1
+}
+
+wait_keycloak_client_reconciled_or_exit() {
+    local ns=$1 name=$2
+    local max="${MAX_WAIT_KC_REALM_CLIENT}"
+    local w=0
+    echo "Waiting for KeycloakClient '${name}' to reconcile (required; max ${max}s)..."
+    while [ "$w" -lt "$max" ]; do
+        if keycloakclient_is_reconciled "$ns" "$name"; then
+            echo "✓ KeycloakClient '${name}' is reconciled"
+            return 0
+        fi
+        sleep 5
+        w=$((w + 5))
+        if [ $((w % 10)) -eq 0 ] && [ "$w" -gt 0 ]; then
+            echo "  Still waiting for client '${name}'... (${w}s/${max}s)"
+            keycloakclient_status_hint "$ns" "$name" | sed 's/^/    | /' || true
+        fi
+    done
+    echo "Error: KeycloakClient '${name}' did not reconcile within ${max}s."
+    keycloakclient_status_hint "$ns" "$name" | sed 's/^/  /' || true
+    echo "  Try: oc describe keycloakclient -n ${ns} ${name}"
+    exit 1
+}
+
+wait_keycloak_user_reconciled_or_exit() {
+    local ns=$1 name=$2
+    local max="${MAX_WAIT_KC_USER}"
+    local w=0
+    if ! [ "${max}" -gt 0 ] 2>/dev/null; then
+        echo "Error: MAX_WAIT_KC_USER must be a positive integer (got: ${max})"
+        exit 1
+    fi
+    echo "Waiting for KeycloakUser '${name}' to reconcile (required; max ${max}s)..."
+    while [ "$w" -lt "$max" ]; do
+        if keycloakuser_is_reconciled "$ns" "$name"; then
+            echo "✓ KeycloakUser '${name}' reconciled"
+            return 0
+        fi
+        sleep 2
+        w=$((w + 2))
+        if [ $((w % 10)) -eq 0 ] && [ "$w" -gt 0 ]; then
+            echo "  Still waiting for user '${name}'... (${w}s/${max}s)"
+            keycloakuser_status_hint "$ns" "$name" | sed 's/^/    | /' || true
+        fi
+    done
+    echo "Error: KeycloakUser '${name}' did not reconcile within ${max}s."
+    keycloakuser_status_hint "$ns" "$name" | sed 's/^/  /' || true
+    echo "  Try: oc describe keycloakuser -n ${ns} ${name}"
+    exit 1
+}
+
 # Step 1: Get Red Hat SSO (Keycloak) OIDC Issuer URL
 echo "Retrieving Red Hat SSO (Keycloak) OIDC Issuer URL..."
 
@@ -358,7 +484,11 @@ if [ -z "$KEYCLOAK_ROUTE" ]; then
 fi
 
 KEYCLOAK_URL="https://${KEYCLOAK_ROUTE}"
-OIDC_ISSUER_URL="${KEYCLOAK_URL}/auth/realms/openshift"
+if [ -n "${OIDC_ISSUER_URL:-}" ]; then
+    echo "✓ Using OIDC_ISSUER_URL from environment: $OIDC_ISSUER_URL"
+else
+    OIDC_ISSUER_URL=$(discover_keycloak_oidc_issuer_url "$KEYCLOAK_ROUTE" openshift)
+fi
 echo "✓ Red Hat SSO (Keycloak) URL: $KEYCLOAK_URL"
 echo "✓ OIDC Issuer URL: $OIDC_ISSUER_URL"
 
@@ -434,42 +564,17 @@ while [ $WAIT_COUNT -lt $MAX_WAIT_KEYCLOAK ]; do
 done
 
 if [ "$KEYCLOAK_READY" = false ]; then
-    echo "Warning: Keycloak instance did not become ready within ${MAX_WAIT_KEYCLOAK} seconds, but continuing..."
-    echo "  Checking current status..."
+    echo "Error: Keycloak instance did not become ready within ${MAX_WAIT_KEYCLOAK} seconds."
+    echo "  Current status:"
     oc get pods -n "$KEYCLOAK_NS" -l app=keycloak 2>/dev/null || true
     oc get pods -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak 2>/dev/null || echo "  No Keycloak-labeled pods found"
     oc get route keycloak-rhsso -n "$KEYCLOAK_NS" 2>/dev/null || oc get route keycloak -n "$KEYCLOAK_NS" 2>/dev/null || oc get route -n "$KEYCLOAK_NS" 2>/dev/null || echo "  No routes in namespace"
+    exit 1
 fi
 
-# KeycloakRealm / KeycloakClient: short wait then continue (operator status often lags console). Override: MAX_WAIT_KC_REALM_CLIENT=300
-MAX_WAIT_KC_REALM_CLIENT="${MAX_WAIT_KC_REALM_CLIENT:-30}"
-
-# KeycloakUser: brief poll only (CR is accepted quickly; downstream steps tolerate lag). Override: MAX_WAIT_KC_USER=60
-MAX_WAIT_KC_USER="${MAX_WAIT_KC_USER:-15}"
-
-# One code path for admin / jdoe / user1 so every user behaves the same.
-wait_keycloak_user_brief() {
-    local ns=$1 name=$2
-    local max="${MAX_WAIT_KC_USER}"
-    local w=0
-    if ! [ "${max}" -gt 0 ] 2>/dev/null; then
-        echo "Skipping KeycloakUser '${name}' reconcile wait (MAX_WAIT_KC_USER=${max})."
-        return 0
-    fi
-    echo "Waiting briefly for KeycloakUser '${name}' (max ${max}s, then continue)..."
-    while [ "$w" -lt "$max" ]; do
-        if keycloakuser_is_reconciled "$ns" "$name"; then
-            echo "✓ KeycloakUser '${name}' reconciled"
-            return 0
-        fi
-        sleep 2
-        w=$((w + 2))
-        if [ $((w % 5)) -eq 0 ] && [ "$w" -gt 0 ]; then
-            echo "  Still waiting for '${name}'... (${w}s/${max}s)"
-        fi
-    done
-    echo "Warning: KeycloakUser '${name}' did not report reconciled within ${max}s — continuing anyway."
-}
+# KeycloakRealm / KeycloakClient / KeycloakUser: must reconcile before RHTAS install continues. Override timeouts via env.
+MAX_WAIT_KC_REALM_CLIENT="${MAX_WAIT_KC_REALM_CLIENT:-600}"
+MAX_WAIT_KC_USER="${MAX_WAIT_KC_USER:-300}"
 
 # Step 3: Ensure OpenShift realm exists (using KeycloakRealm CR)
 echo ""
@@ -480,30 +585,6 @@ REALM_CR_NAME="openshift"
 # Check if KeycloakRealm CR exists (k8s.keycloak.org or legacy keycloak.org)
 if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
     echo "✓ KeycloakRealm CR '${REALM_CR_NAME}' already exists"
-    
-    # Wait for realm to be ready/reconciled (RHBK: conditions Ready/Done; RH-SSO: .status.ready / phase reconciled)
-    echo "Waiting for realm to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
-    MAX_WAIT_REALM="${MAX_WAIT_KC_REALM_CLIENT}"
-    WAIT_COUNT=0
-    REALM_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_REALM ]; do
-        if keycloakrealm_is_reconciled "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
-            REALM_READY=true
-            echo "✓ Realm is reconciled"
-            break
-        fi
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) — status:"
-            keycloakrealm_status_hint "$KEYCLOAK_NS" "$REALM_CR_NAME" | sed 's/^/    | /' || true
-        fi
-    done
-    
-    if [ "$REALM_READY" = false ]; then
-        echo "Warning: Realm did not become reconciled within ${MAX_WAIT_REALM}s — continuing anyway."
-    fi
 else
     echo "Creating KeycloakRealm CR '${REALM_CR_NAME}'..."
     
@@ -531,31 +612,8 @@ EOF
     fi
     
     echo "✓ KeycloakRealm CR created successfully"
-    
-    # Wait for realm to be ready/reconciled
-    echo "Waiting for realm to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
-    MAX_WAIT_REALM="${MAX_WAIT_KC_REALM_CLIENT}"
-    WAIT_COUNT=0
-    REALM_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_REALM ]; do
-        if keycloakrealm_is_reconciled "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
-            REALM_READY=true
-            echo "✓ Realm is reconciled"
-            break
-        fi
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) — status:"
-            keycloakrealm_status_hint "$KEYCLOAK_NS" "$REALM_CR_NAME" | sed 's/^/    | /' || true
-        fi
-    done
-    
-    if [ "$REALM_READY" = false ]; then
-        echo "Warning: Realm did not become reconciled within ${MAX_WAIT_REALM}s — continuing anyway."
-    fi
 fi
+wait_keycloak_realm_reconciled_or_exit "$KEYCLOAK_NS" "$REALM_CR_NAME"
 
 # Step 3a: Create OpenShift OAuth Client
 echo ""
@@ -565,29 +623,6 @@ CLIENT_YAML_FILE="${SCRIPT_DIR}/keycloak-client-openshift.yaml"
 
 if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME_OCP}' already exists"
-    
-    # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
-    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
-    WAIT_COUNT=0
-    CLIENT_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
-            CLIENT_READY=true
-            echo "✓ Client is reconciled"
-            break
-        fi
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
-        fi
-    done
-    
-    if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
-    fi
 else
     echo "Creating KeycloakClient CR '${CLIENT_CR_NAME_OCP}' from ${CLIENT_YAML_FILE}..."
     
@@ -602,30 +637,8 @@ else
     fi
     
     echo "✓ KeycloakClient CR created successfully"
-    
-    # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
-    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
-    WAIT_COUNT=0
-    CLIENT_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
-            CLIENT_READY=true
-            echo "✓ Client is reconciled"
-            break
-        fi
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
-        fi
-    done
-    
-    if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
-    fi
 fi
+wait_keycloak_client_reconciled_or_exit "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"
 
 # Step 4: Create Keycloak User for authentication
 echo ""
@@ -638,7 +651,6 @@ KEYCLOAK_USER_PASSWORD="116608"  # Default password, can be changed
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME}' already exists"
-    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"
 else
     echo "Creating KeycloakUser CR '${KEYCLOAK_USER_NAME}'..."
     
@@ -672,8 +684,8 @@ EOF
     fi
     
     echo "✓ KeycloakUser CR created successfully"
-    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"
 fi
+wait_keycloak_user_reconciled_or_exit "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"
 
 # Step 3b: Create jdoe Keycloak User for signing
 echo ""
@@ -686,7 +698,6 @@ KEYCLOAK_USER_PASSWORD_JDOE="secure"
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_JDOE}' already exists"
-    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"
 else
     echo "Creating KeycloakUser CR '${KEYCLOAK_USER_NAME_JDOE}'..."
     
@@ -719,8 +730,8 @@ EOF
     fi
     
     echo "✓ KeycloakUser CR created successfully"
-    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"
 fi
+wait_keycloak_user_reconciled_or_exit "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"
 
 # Step 3c: Create user1 Keycloak User
 echo ""
@@ -731,7 +742,6 @@ USER_YAML_FILE="${SCRIPT_DIR}/keycloak-user-user1.yaml"
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"; then
     echo "✓ KeycloakUser CR '${KEYCLOAK_USER_NAME_USER1}' already exists"
-    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"
 else
     echo "Creating KeycloakUser CR '${KEYCLOAK_USER_NAME_USER1}' from ${USER_YAML_FILE}..."
     
@@ -746,8 +756,8 @@ else
     fi
     
     echo "✓ KeycloakUser CR created successfully"
-    wait_keycloak_user_brief "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"
 fi
+wait_keycloak_user_reconciled_or_exit "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"
 
 # Step 4: Create OAuth Client in Red Hat SSO (Keycloak) for Trusted Artifact Signer
 echo ""
@@ -758,29 +768,6 @@ CLIENT_CR_NAME="trusted-artifact-signer"
 # Check if KeycloakClient CR already exists
 if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME}' already exists"
-    
-    # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
-    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
-    WAIT_COUNT=0
-    CLIENT_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
-            CLIENT_READY=true
-            echo "✓ Client is reconciled"
-            break
-        fi
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
-        fi
-    done
-    
-    if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
-    fi
 else
     echo "Creating KeycloakClient CR '${CLIENT_CR_NAME}'..."
     
@@ -844,30 +831,8 @@ EOF
     echo "  5. Set 'Included Client Audience' to '${OIDC_CLIENT_ID}'"
     echo "  6. Enable 'Add to ID token' and 'Add to access token'"
     echo ""
-    
-    # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
-    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
-    WAIT_COUNT=0
-    CLIENT_READY=false
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT_CLIENT ]; do
-        if keycloakclient_is_reconciled "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
-            CLIENT_READY=true
-            echo "✓ Client is reconciled"
-            break
-        fi
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-            echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
-        fi
-    done
-    
-    if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
-    fi
 fi
+wait_keycloak_client_reconciled_or_exit "$KEYCLOAK_NS" "$CLIENT_CR_NAME"
 
 # Check if client secret was created
 CLIENT_SECRET_NAME="keycloak-client-secret-${CLIENT_CR_NAME}"
