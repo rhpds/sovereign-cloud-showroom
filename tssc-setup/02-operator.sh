@@ -441,6 +441,9 @@ if [ "$KEYCLOAK_READY" = false ]; then
     oc get route keycloak-rhsso -n "$KEYCLOAK_NS" 2>/dev/null || oc get route keycloak -n "$KEYCLOAK_NS" 2>/dev/null || oc get route -n "$KEYCLOAK_NS" 2>/dev/null || echo "  No routes in namespace"
 fi
 
+# KeycloakRealm / KeycloakClient: short wait then continue (operator status often lags console). Override: MAX_WAIT_KC_REALM_CLIENT=300
+MAX_WAIT_KC_REALM_CLIENT="${MAX_WAIT_KC_REALM_CLIENT:-30}"
+
 # Step 3: Ensure OpenShift realm exists (using KeycloakRealm CR)
 echo ""
 echo "Ensuring OpenShift realm exists..."
@@ -452,8 +455,8 @@ if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
     echo "✓ KeycloakRealm CR '${REALM_CR_NAME}' already exists"
     
     # Wait for realm to be ready/reconciled (RHBK: conditions Ready/Done; RH-SSO: .status.ready / phase reconciled)
-    echo "Waiting for realm to be reconciled..."
-    MAX_WAIT_REALM=300
+    echo "Waiting for realm to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
+    MAX_WAIT_REALM="${MAX_WAIT_KC_REALM_CLIENT}"
     WAIT_COUNT=0
     REALM_READY=false
     
@@ -465,14 +468,14 @@ if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
         fi
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) — status:"
             keycloakrealm_status_hint "$KEYCLOAK_NS" "$REALM_CR_NAME" | sed 's/^/    | /' || true
         fi
     done
     
     if [ "$REALM_READY" = false ]; then
-        echo "Warning: Realm did not become reconciled within ${MAX_WAIT_REALM} seconds, but continuing..."
+        echo "Warning: Realm did not become reconciled within ${MAX_WAIT_REALM}s — continuing anyway."
     fi
 else
     echo "Creating KeycloakRealm CR '${REALM_CR_NAME}'..."
@@ -503,8 +506,8 @@ EOF
     echo "✓ KeycloakRealm CR created successfully"
     
     # Wait for realm to be ready/reconciled
-    echo "Waiting for realm to be reconciled..."
-    MAX_WAIT_REALM=300
+    echo "Waiting for realm to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
+    MAX_WAIT_REALM="${MAX_WAIT_KC_REALM_CLIENT}"
     WAIT_COUNT=0
     REALM_READY=false
     
@@ -516,14 +519,14 @@ EOF
         fi
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             echo "  Still waiting for realm... (${WAIT_COUNT}s/${MAX_WAIT_REALM}s) — status:"
             keycloakrealm_status_hint "$KEYCLOAK_NS" "$REALM_CR_NAME" | sed 's/^/    | /' || true
         fi
     done
     
     if [ "$REALM_READY" = false ]; then
-        echo "Warning: Realm did not become reconciled within ${MAX_WAIT_REALM} seconds, but continuing..."
+        echo "Warning: Realm did not become reconciled within ${MAX_WAIT_REALM}s — continuing anyway."
     fi
 fi
 
@@ -537,8 +540,8 @@ if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME_OCP}' already exists"
     
     # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled..."
-    MAX_WAIT_CLIENT=300
+    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
+    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
     WAIT_COUNT=0
     CLIENT_READY=false
     
@@ -550,13 +553,13 @@ if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME_OCP"; then
         fi
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
     if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT} seconds, but continuing..."
+        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
     fi
 else
     echo "Creating KeycloakClient CR '${CLIENT_CR_NAME_OCP}' from ${CLIENT_YAML_FILE}..."
@@ -574,8 +577,8 @@ else
     echo "✓ KeycloakClient CR created successfully"
     
     # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled..."
-    MAX_WAIT_CLIENT=300
+    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
+    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
     WAIT_COUNT=0
     CLIENT_READY=false
     
@@ -587,13 +590,13 @@ else
         fi
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
     if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT} seconds, but continuing..."
+        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
     fi
 fi
 
@@ -862,8 +865,8 @@ if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
     echo "✓ KeycloakClient CR '${CLIENT_CR_NAME}' already exists"
     
     # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled..."
-    MAX_WAIT_CLIENT=300
+    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
+    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
     WAIT_COUNT=0
     CLIENT_READY=false
     
@@ -875,13 +878,13 @@ if keycloakclient_cr_exists "$KEYCLOAK_NS" "$CLIENT_CR_NAME"; then
         fi
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
     if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT} seconds, but continuing..."
+        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
     fi
 else
     echo "Creating KeycloakClient CR '${CLIENT_CR_NAME}'..."
@@ -948,8 +951,8 @@ EOF
     echo ""
     
     # Wait for client to be ready/reconciled
-    echo "Waiting for client to be reconciled..."
-    MAX_WAIT_CLIENT=300
+    echo "Waiting for client to be reconciled (max ${MAX_WAIT_KC_REALM_CLIENT}s, then continue)..."
+    MAX_WAIT_CLIENT="${MAX_WAIT_KC_REALM_CLIENT}"
     WAIT_COUNT=0
     CLIENT_READY=false
     
@@ -961,13 +964,13 @@ EOF
         fi
         sleep 5
         WAIT_COUNT=$((WAIT_COUNT + 5))
-        if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             echo "  Still waiting for client... (${WAIT_COUNT}s/${MAX_WAIT_CLIENT}s)"
         fi
     done
     
     if [ "$CLIENT_READY" = false ]; then
-        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT} seconds, but continuing..."
+        echo "Warning: Client did not become reconciled within ${MAX_WAIT_CLIENT}s — continuing anyway."
     fi
 fi
 

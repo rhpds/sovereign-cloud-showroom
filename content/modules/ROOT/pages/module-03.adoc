@@ -72,6 +72,7 @@ We'll be building a python based application to demonstrate the signing and veri
 +
 [source,sh,subs="attributes",role=execute]
 ----
+source ~/.bashrc
 podman pull registry.access.redhat.com/ubi8/python-312:1-1775513555
 podman tag registry.access.redhat.com/ubi8/python-312:1-1775513555 $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden
 podman push --remove-signatures $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden
