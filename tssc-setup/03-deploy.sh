@@ -12,6 +12,49 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KUBE_CONTEXT="${KUBE_CONTEXT:-local-cluster}"
 oc config use-context "$KUBE_CONTEXT" &>/dev/null || true
 
+# Resolve Keycloak namespace from workloads / CRs / operator CSV — not from OLM Subscription objects.
+discover_keycloak_namespace() {
+    local ns _csv_line _routes_out line _r_ns _r_name
+    if [ -n "${KEYCLOAK_NAMESPACE_OVERRIDE:-}" ] && oc get namespace "${KEYCLOAK_NAMESPACE_OVERRIDE}" >/dev/null 2>&1; then
+        echo "${KEYCLOAK_NAMESPACE_OVERRIDE}"
+        return 0
+    fi
+    if [ -n "${KEYCLOAK_NAMESPACE:-}" ] && oc get namespace "${KEYCLOAK_NAMESPACE}" >/dev/null 2>&1; then
+        echo "${KEYCLOAK_NAMESPACE}"
+        return 0
+    fi
+    ns=$(oc get keycloaks.k8s.keycloak.org -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    ns=$(oc get deployment -A -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    ns=$(oc get pods -A -l app.kubernetes.io/name=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    _csv_line=$(oc get csv -A --no-headers 2>/dev/null | grep -iE 'keycloak|rhbk' | head -1 || true)
+    if [ -n "$_csv_line" ]; then
+        ns=$(echo "$_csv_line" | awk '{print $1}')
+        [ -n "$ns" ] && echo "$ns" && return 0
+    fi
+    if oc get namespace rhsso >/dev/null 2>&1; then
+        echo "rhsso"
+        return 0
+    fi
+    if oc get namespace keycloak >/dev/null 2>&1; then
+        echo "keycloak"
+        return 0
+    fi
+    _routes_out=$(oc get routes -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        _r_ns="${line%% *}"
+        _r_name="${line#* }"
+        if [ "$_r_name" = "keycloak-rhsso" ] || [ "$_r_name" = "keycloak" ]; then
+            echo "$_r_ns"
+            return 0
+        fi
+    done <<< "$_routes_out"
+    return 1
+}
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -139,17 +182,11 @@ fi
 # Check if Keycloak is available (RH-SSO / rhsso, Red Hat build of Keycloak / keycloak, or override)
 log "Checking if Keycloak is available..."
 KEYCLOAK_NAMESPACE=""
-if [ -n "${KEYCLOAK_NAMESPACE_OVERRIDE:-}" ] && oc get namespace "$KEYCLOAK_NAMESPACE_OVERRIDE" >/dev/null 2>&1; then
-    KEYCLOAK_NAMESPACE="$KEYCLOAK_NAMESPACE_OVERRIDE"
-elif oc get namespace rhsso >/dev/null 2>&1; then
-    KEYCLOAK_NAMESPACE="rhsso"
-elif oc get namespace keycloak >/dev/null 2>&1; then
-    KEYCLOAK_NAMESPACE="keycloak"
-else
-    KEYCLOAK_NAMESPACE=$(oc get subscription.operators.coreos.com -A -o jsonpath='{range .items[?(@.metadata.name=="rhbk-operator")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -1)
+if ! KEYCLOAK_NAMESPACE=$(discover_keycloak_namespace); then
+    KEYCLOAK_NAMESPACE=""
 fi
 if [ -z "$KEYCLOAK_NAMESPACE" ]; then
-    error "Keycloak namespace not found (expected rhsso, keycloak, or rhbk-operator subscription). Install Keycloak or set KEYCLOAK_NAMESPACE_OVERRIDE."
+    error "Keycloak namespace not found (workloads, keycloaks.k8s.keycloak.org CR, operator CSV in openshift-operators, or namespaces rhsso/keycloak). Install Keycloak or set KEYCLOAK_NAMESPACE_OVERRIDE."
 fi
 
 KEYCLOAK_ROUTE=""

@@ -60,6 +60,28 @@ log "✓ Cluster admin privileges confirmed"
 log "Prerequisites validated successfully"
 log ""
 
+# True when CSV is Succeeded and the operator controller is actually running (not inferred from Subscription).
+rhsso_operator_ready_in_namespace() {
+    local ns=$1 csv_name phase podc
+    [ -z "$ns" ] && return 1
+    oc get namespace "$ns" >/dev/null 2>&1 || return 1
+    csv_name=$(oc get csv -n "$ns" -o name 2>/dev/null | grep rhsso-operator | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || true)
+    if [ -z "$csv_name" ]; then
+        csv_name=$(oc get csv -n "$ns" -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    fi
+    [ -z "$csv_name" ] && return 1
+    phase=$(oc get csv "$csv_name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    [ "$phase" = "Succeeded" ] || return 1
+    podc=$(oc get pods -n "$ns" -l name=rhsso-operator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+    if [ "${podc:-0}" -ge 1 ]; then
+        return 0
+    fi
+    if oc get pods -n "$ns" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qi rhsso-operator; then
+        return 0
+    fi
+    return 1
+}
+
 # Check if RHSSO Operator is already installed
 log "Checking if RHSSO Operator is already installed..."
 NAMESPACE="rhsso"
@@ -67,28 +89,12 @@ OPERATOR_INSTALLED=false
 
 if oc get namespace $NAMESPACE >/dev/null 2>&1; then
     log "Namespace $NAMESPACE already exists"
-    
-    # Check for existing subscription
-    if oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE >/dev/null 2>&1; then
-        CURRENT_CSV=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
-        if [ -z "$CURRENT_CSV" ]; then
-            log "Subscription exists but CSV not yet determined, proceeding with installation..."
-        else
-            CSV_PHASE=$(oc get csv $CURRENT_CSV -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-            if [ "$CSV_PHASE" = "Succeeded" ]; then
-                log "✓ RHSSO Operator is already installed and running"
-                log "  Installed CSV: $CURRENT_CSV"
-                log "  Status: $CSV_PHASE"
-                OPERATOR_INSTALLED=true
-                log "Skipping operator installation, but will proceed with Keycloak instance deployment..."
-            else
-                log "RHSSO Operator subscription exists but CSV is in phase: $CSV_PHASE"
-                log "Continuing with installation to ensure proper setup..."
-            fi
-        fi
+    if rhsso_operator_ready_in_namespace "$NAMESPACE"; then
+        log "✓ RHSSO Operator is already installed and running (CSV Succeeded + operator pods)"
+        OPERATOR_INSTALLED=true
+        log "Skipping operator installation, but will proceed with Keycloak instance deployment..."
     else
-        log "Namespace exists but no subscription found, proceeding with installation..."
+        log "RHSSO operator workload not fully ready in $NAMESPACE (CSV or operator pods); proceeding with installation steps..."
     fi
 else
     log "RHSSO Operator not found, proceeding with installation..."
@@ -224,12 +230,8 @@ EOF
     fi
     log "✓ Subscription created successfully"
 
-    # Verify subscription was created
-    log "Verifying subscription..."
+    log "Verifying operator install progress (CSV + pods, not Subscription status)..."
     sleep 3
-
-    SUBSCRIPTION_STATUS=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.state}' 2>/dev/null || echo "")
-    log "Subscription state: ${SUBSCRIPTION_STATUS:-unknown}"
 
     # Step 5: Wait for CSV to be created and installed
     log ""
@@ -252,7 +254,8 @@ EOF
         # Show progress every 10 seconds
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             log "  Progress check (${WAIT_COUNT}s/${MAX_WAIT}s):"
-            oc get csv,subscription.operators.coreos.com,installplan -n $NAMESPACE 2>/dev/null | head -5 || true
+            oc get csv,installplan.operators.coreos.com -n $NAMESPACE 2>/dev/null | head -5 || true
+            oc get pods -n $NAMESPACE --no-headers 2>/dev/null | head -5 || true
             log ""
         fi
         
@@ -262,8 +265,8 @@ EOF
 
     if [ "$CSV_CREATED" = false ]; then
         warning "CSV not created after ${MAX_WAIT} seconds. Current status:"
-        oc get csv,subscription.operators.coreos.com,installplan -n $NAMESPACE
-        warning "CSV may still be installing. Check subscription status: oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE"
+        oc get csv,installplan.operators.coreos.com -n $NAMESPACE
+        warning "CSV may still be installing. Check: oc get csv -n $NAMESPACE && oc get pods -n $NAMESPACE"
     fi
 
     # Get the CSV name
@@ -296,10 +299,7 @@ EOF
     log "CSV status:"
     oc get csv -n $NAMESPACE 2>/dev/null || log "  No CSV found"
     log ""
-    log "Subscription status:"
-    oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE 2>/dev/null || log "  No subscription found"
-    log ""
-    log "Pod status:"
+    log "Operator pod status:"
     oc get pods -n $NAMESPACE 2>/dev/null || log "  No pods found"
     log ""
 
@@ -347,7 +347,7 @@ else
         CSV_NAME=$(oc get csv -n $NAMESPACE -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     fi
     if [ -z "$CSV_NAME" ]; then
-        CSV_NAME=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
+        CSV_NAME=$(oc get csv -n $NAMESPACE --no-headers 2>/dev/null | grep -i rhsso | head -1 | awk '{print $1}' || echo "")
     fi
     
     log ""

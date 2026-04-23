@@ -11,43 +11,113 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KUBE_CONTEXT="${KUBE_CONTEXT:-local-cluster}"
 oc config use-context "$KUBE_CONTEXT" &>/dev/null || true
 
+# True if namespace hosts a Keycloak instance signal (CR, workload, or route) — not "namespace exists".
+keycloak_namespace_has_instance_signals() {
+    local ns=$1 rt
+    [ -z "$ns" ] && return 1
+    oc get namespace "$ns" >/dev/null 2>&1 || return 1
+    if oc get keycloaks.k8s.keycloak.org -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if oc get keycloak.k8s.keycloak.org -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if oc get keycloakrealmimports.k8s.keycloak.org -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if oc get keycloaks.keycloak.org -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if oc get keycloak.keycloak.org -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if oc get deployment -n "$ns" -l app.kubernetes.io/name=keycloak --no-headers 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if oc get statefulset keycloak -n "$ns" &>/dev/null; then
+        return 0
+    fi
+    if oc get pods -n "$ns" --no-headers 2>/dev/null | grep -qiE 'keycloak|rhbk'; then
+        return 0
+    fi
+    for rt in keycloak keycloak-rhsso rhbk-keycloak sso; do
+        oc get route "$rt" -n "$ns" &>/dev/null && return 0
+    done
+    return 1
+}
+
+# Resolve Keycloak namespace from CRs / workloads / routes — not OLM Subscriptions; never prefer empty rhsso over keycloak.
+discover_keycloak_namespace() {
+    local ns _csv_line _routes_out line _r_ns _r_name
+    if [ -n "${KEYCLOAK_NAMESPACE_OVERRIDE:-}" ] && oc get namespace "${KEYCLOAK_NAMESPACE_OVERRIDE}" >/dev/null 2>&1; then
+        echo "${KEYCLOAK_NAMESPACE_OVERRIDE}"
+        return 0
+    fi
+    if [ -n "${KEYCLOAK_NAMESPACE:-}" ] && oc get namespace "${KEYCLOAK_NAMESPACE}" >/dev/null 2>&1; then
+        echo "${KEYCLOAK_NAMESPACE}"
+        return 0
+    fi
+
+    # Prefer 'keycloak' before 'rhsso': labs often have an empty rhsso NS while RHBK lives in keycloak.
+    for ns in keycloak rhsso; do
+        if keycloak_namespace_has_instance_signals "$ns"; then
+            echo "$ns"
+            return 0
+        fi
+    done
+
+    ns=$(oc get keycloaks.k8s.keycloak.org -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    ns=$(oc get keycloak.k8s.keycloak.org -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    ns=$(oc get keycloaks.keycloak.org -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+
+    ns=$(oc get deployment -A -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    ns=$(oc get pods -A -l app.kubernetes.io/name=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+
+    # Operator CSV in the instance namespace only (not openshift-operators).
+    for ns in keycloak rhsso; do
+        oc get namespace "$ns" >/dev/null 2>&1 || continue
+        if oc get csv -n "$ns" --no-headers 2>/dev/null | grep -qiE 'keycloak|rhbk'; then
+            echo "$ns"
+            return 0
+        fi
+    done
+
+    _routes_out=$(oc get routes -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        _r_ns="${line%% *}"
+        _r_name="${line#* }"
+        case "$_r_name" in keycloak-rhsso|keycloak|rhbk-keycloak|sso)
+            echo "$_r_ns"
+            return 0
+            ;;
+        esac
+    done <<< "$_routes_out"
+
+    if oc get namespace keycloak >/dev/null 2>&1; then
+        echo "keycloak"
+        return 0
+    fi
+    if oc get namespace rhsso >/dev/null 2>&1; then
+        echo "rhsso"
+        return 0
+    fi
+    return 1
+}
+
 # Step 1: Get Red Hat SSO (Keycloak) OIDC Issuer URL
 echo "Retrieving Red Hat SSO (Keycloak) OIDC Issuer URL..."
 
 KEYCLOAK_NS=""
-if [ -n "${KEYCLOAK_NAMESPACE:-}" ] && oc get namespace "$KEYCLOAK_NAMESPACE" >/dev/null 2>&1; then
-    KEYCLOAK_NS="$KEYCLOAK_NAMESPACE"
-elif oc get namespace rhsso >/dev/null 2>&1; then
-    KEYCLOAK_NS="rhsso"
-elif oc get namespace keycloak >/dev/null 2>&1; then
-    # Red Hat build of Keycloak (rhbk-operator) — namespace is usually literally "keycloak"
-    KEYCLOAK_NS="keycloak"
+if KEYCLOAK_NS=$(discover_keycloak_namespace); then
+    :
 else
-    # OLM Subscription name rhbk-operator (metadata.name), any namespace
-    KEYCLOAK_NS=$(oc get subscription.operators.coreos.com -A -o jsonpath='{range .items[?(@.metadata.name=="rhbk-operator")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -1)
-    if [ -z "$KEYCLOAK_NS" ]; then
-        _routes_out=$(oc get routes -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-        while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            _r_ns="${line%% *}"
-            _r_name="${line#* }"
-            if [ "$_r_name" = "keycloak-rhsso" ]; then
-                KEYCLOAK_NS="$_r_ns"
-                break
-            fi
-        done <<< "$_routes_out"
-    fi
-    if [ -z "$KEYCLOAK_NS" ]; then
-        while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            _r_ns="${line%% *}"
-            _r_name="${line#* }"
-            if [ "$_r_name" = "keycloak" ]; then
-                KEYCLOAK_NS="$_r_ns"
-                break
-            fi
-        done <<< "$_routes_out"
-    fi
+    KEYCLOAK_NS=""
 fi
 
 if [ -z "$KEYCLOAK_NS" ]; then
@@ -91,13 +161,47 @@ else
     if [ "$KEYCLOAK_STS_READY" = "1/1" ] && [ "$KEYCLOAK_POD_RUNNING" = "Running" ]; then
         echo "✓ Keycloak resources are running (CR not found, but installation appears successful)"
         KEYCLOAK_CR_EXISTS=false
-    elif oc get subscription.operators.coreos.com rhbk-operator -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
-        echo "✓ Red Hat build of Keycloak (Subscription rhbk-operator) in ${KEYCLOAK_NS} — legacy RH-SSO CR/STS checks skipped"
-        KEYCLOAK_CR_EXISTS=false
     else
-        echo "Error: Keycloak custom resource not found in namespace ${KEYCLOAK_NS} and resources are not running"
-        echo "Install RH SSO (./01-keycloak.sh) or Red Hat Keycloak (rhbk-operator), or set KEYCLOAK_NAMESPACE"
-        exit 1
+        echo "Keycloak CR not found; waiting for instance pods / StatefulSet / Deployment in ${KEYCLOAK_NS} (up to 300s)..."
+        KEYCLOAK_WORKLOAD_OK=false
+        _pre=0
+        while [ "$_pre" -lt 300 ]; do
+            KEYCLOAK_STS_READY=$(oc get statefulset keycloak -n "$KEYCLOAK_NS" -o jsonpath='{.status.readyReplicas}/{.status.replicas}' 2>/dev/null || echo "")
+            KEYCLOAK_POD_RUNNING=$(oc get pod -n "$KEYCLOAK_NS" -l app=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+            if [ "$KEYCLOAK_STS_READY" = "1/1" ] && [ "$KEYCLOAK_POD_RUNNING" = "Running" ]; then
+                echo "✓ Keycloak resources are running (StatefulSet + pods)"
+                KEYCLOAK_WORKLOAD_OK=true
+                break
+            fi
+            _k_r=$(oc get deployment -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].status.readyReplicas}' 2>/dev/null || echo "")
+            _k_w=$(oc get deployment -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].spec.replicas}' 2>/dev/null || echo "")
+            if [ -n "$_k_r" ] && [ -n "$_k_w" ] && [ "$_k_w" != "0" ] && [ "$_k_r" = "$_k_w" ]; then
+                echo "✓ Keycloak Deployment ready (Red Hat build of Keycloak)"
+                KEYCLOAK_WORKLOAD_OK=true
+                break
+            fi
+            if oc get pods -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak --field-selector=status.phase=Running -o name 2>/dev/null | grep -q .; then
+                echo "✓ Keycloak instance pods Running (app.kubernetes.io/name=keycloak)"
+                KEYCLOAK_WORKLOAD_OK=true
+                break
+            fi
+            if oc get pods -n "$KEYCLOAK_NS" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qiE 'keycloak|rhbk'; then
+                echo "✓ Keycloak-related pods Running in ${KEYCLOAK_NS}"
+                KEYCLOAK_WORKLOAD_OK=true
+                break
+            fi
+            sleep 5
+            _pre=$((_pre + 5))
+            if [ $((_pre % 30)) -eq 0 ] && [ "$_pre" -gt 0 ]; then
+                echo "  ... still waiting (${_pre}s/300s) for Keycloak workload in ${KEYCLOAK_NS}"
+            fi
+        done
+        if [ "$KEYCLOAK_WORKLOAD_OK" != true ]; then
+            echo "Error: Keycloak custom resource not found in namespace ${KEYCLOAK_NS} and no healthy Keycloak workload detected"
+            echo "Install RH SSO (./01-keycloak.sh) or Red Hat build of Keycloak, or set KEYCLOAK_NAMESPACE / KEYCLOAK_NAMESPACE_OVERRIDE"
+            exit 1
+        fi
+        KEYCLOAK_CR_EXISTS=false
     fi
 fi
 
@@ -851,13 +955,6 @@ while [ $WAIT_COUNT -lt $MAX_WAIT_CSV ]; do
     if [ -z "$CSV_NAME" ]; then
         CSV_NAME=$(oc get csv -n openshift-operators -l operators.coreos.com/trusted-artifact-signer.openshift-operators -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     fi
-    # Subscription already resolved target CSV (often before the CSV object exists)
-    if [ -z "$CSV_NAME" ]; then
-        _csv_from_sub=$(oc get "${OLM_SUB}" trusted-artifact-signer -n "$OPERATOR_NAMESPACE" -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
-        if [ -n "$_csv_from_sub" ] && oc get csv "$_csv_from_sub" -n openshift-operators &>/dev/null; then
-            CSV_NAME="$_csv_from_sub"
-        fi
-    fi
 
     if [ -n "$CSV_NAME" ]; then
         echo "✓ Found CSV: $CSV_NAME"
@@ -875,10 +972,10 @@ done
 
 if [ -z "$CSV_NAME" ]; then
     echo "Error: Could not find RHTAS Operator CSV after ${MAX_WAIT_CSV} seconds"
-    echo "If subscription shows InstallPlanPending / RequiresApproval, the script should approve the InstallPlan automatically; check RBAC (cluster-admin) and:"
+    echo "If InstallPlan is pending approval, the script should approve it automatically; check RBAC (cluster-admin) and:"
     echo "  oc get installplan -n openshift-operators"
-    echo "  oc describe subscription.operators.coreos.com trusted-artifact-signer -n openshift-operators"
-    oc get "${OLM_SUB}" trusted-artifact-signer -n openshift-operators -o yaml
+    echo "  oc get csv -n openshift-operators | grep -iE 'rhtas|trusted-artifact-signer'"
+    echo "  oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator"
     exit 1
 fi
 
