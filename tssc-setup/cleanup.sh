@@ -274,6 +274,7 @@ if [ "$SKIP_KEYCLOAK_RESOURCES" != true ]; then
         kc_delete_client "$KEYCLOAK_CLEAN_NS" "trusted-artifact-signer"
         kc_delete_client "$KEYCLOAK_CLEAN_NS" "openshift"
         oc delete "keycloakrealms.k8s.keycloak.org/openshift" -n "$KEYCLOAK_CLEAN_NS" --ignore-not-found --wait=false 2>/dev/null || true
+        oc delete "keycloakrealmimports.k8s.keycloak.org/openshift-realm-import" -n "$KEYCLOAK_CLEAN_NS" --ignore-not-found --wait=false 2>/dev/null || true
         oc delete "keycloakrealms.keycloak.org/openshift" -n "$KEYCLOAK_CLEAN_NS" --ignore-not-found --wait=false 2>/dev/null || true
         oc delete "keycloakrealm/openshift" -n "$KEYCLOAK_CLEAN_NS" --ignore-not-found --wait=false 2>/dev/null || true
         oc delete secret keycloak-client-secret-trusted-artifact-signer -n "$KEYCLOAK_CLEAN_NS" --ignore-not-found --wait=false 2>/dev/null || true

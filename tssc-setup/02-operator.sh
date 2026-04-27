@@ -3,7 +3,9 @@
 # Script to install Red Hat Trusted Artifact Signer (RHTAS) with Red Hat SSO (Keycloak) as OIDC provider on OpenShift
 # Assumes oc is installed and user is logged in as cluster-admin
 # Assumes Keycloak is installed (RH SSO/rhsso, or Red Hat build of Keycloak rhbk-operator / namespace keycloak, etc.)
-# Usage: ./08-install-trusted-artifact-signer.sh
+# Red Hat build of Keycloak: creates KeycloakRealmImport (k8s.keycloak.org/v2alpha1), not legacy keycloak.org KeycloakRealm
+# (rhbk-operator does not reconcile legacy KeycloakRealm — those CRs stay without .status).
+# Usage: ./02-operator.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -289,6 +291,70 @@ keycloakuser_status_hint() {
     fi
 }
 
+# Red Hat build of Keycloak (k8s.keycloak.org): first Keycloak CR name in namespace, or exit 1.
+resolve_k8s_keycloak_cr_name() {
+    local ns=$1
+    if oc get "keycloaks.k8s.keycloak.org" -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+        oc get "keycloaks.k8s.keycloak.org" -n "$ns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
+        return 0
+    fi
+    if oc get "keycloak.k8s.keycloak.org" -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+        oc get "keycloak.k8s.keycloak.org" -n "$ns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
+        return 0
+    fi
+    return 1
+}
+
+keycloakrealmimport_cr_exists() {
+    local ns=$1 name=$2
+    oc get "keycloakrealmimports.k8s.keycloak.org/$name" -n "$ns" &>/dev/null
+}
+
+keycloakrealmimport_is_done() {
+    local ns=$1 name=$2
+    _kc_condition_true "keycloakrealmimports.k8s.keycloak.org/$name" "$ns" "Done"
+}
+
+keycloakrealmimport_has_errors() {
+    local ns=$1 name=$2
+    _kc_condition_true "keycloakrealmimports.k8s.keycloak.org/$name" "$ns" "HasErrors"
+}
+
+keycloakrealmimport_status_hint() {
+    local ns=$1 name=$2
+    oc get "keycloakrealmimports.k8s.keycloak.org/$name" -n "$ns" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.message}{"\n"}{end}' 2>/dev/null | head -8 || true
+}
+
+wait_keycloak_realm_import_done_or_exit() {
+    local ns=$1 name=$2
+    local max="${MAX_WAIT_KC_REALM_CLIENT}"
+    local w=0
+    echo "Waiting for KeycloakRealmImport '${name}' to finish (required; max ${max}s)..."
+    while [ "$w" -lt "$max" ]; do
+        if keycloakrealmimport_has_errors "$ns" "$name"; then
+            echo "Error: KeycloakRealmImport '${name}' reported HasErrors=true."
+            keycloakrealmimport_status_hint "$ns" "$name" | sed 's/^/  /' || true
+            echo "  Try: oc describe keycloakrealmimports.k8s.keycloak.org/${name} -n ${ns}"
+            echo "  Operator logs: oc logs -n ${ns} deploy/rhbk-operator --tail=100  (or pod name rhbk-operator-*)"
+            exit 1
+        fi
+        if keycloakrealmimport_is_done "$ns" "$name"; then
+            echo "✓ KeycloakRealmImport '${name}' is Done"
+            return 0
+        fi
+        sleep 5
+        w=$((w + 5))
+        if [ $((w % 10)) -eq 0 ] && [ "$w" -gt 0 ]; then
+            echo "  Still waiting for realm import... (${w}s/${max}s) — status:"
+            keycloakrealmimport_status_hint "$ns" "$name" | sed 's/^/    | /' || true
+        fi
+    done
+    echo "Error: KeycloakRealmImport '${name}' did not complete within ${max}s."
+    keycloakrealmimport_status_hint "$ns" "$name" | sed 's/^/  /' || true
+    echo "  Try: oc describe keycloakrealmimports.k8s.keycloak.org/${name} -n ${ns}"
+    exit 1
+}
+
 # Block until reconciled; exit 1 on timeout (no warn-and-continue).
 wait_keycloak_realm_reconciled_or_exit() {
     local ns=$1 name=$2
@@ -494,10 +560,24 @@ echo "✓ OIDC Issuer URL: $OIDC_ISSUER_URL"
 
 # Step 2: Wait for Keycloak instance to be ready before creating realms/clients
 echo "Waiting for Keycloak instance to be ready..."
-KEYCLOAK_CR_NAME="rhsso-instance"
-KEYCLOAK_CRD="keycloaks"
-if ! oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
-    KEYCLOAK_CRD="keycloak"
+# Do not reset KEYCLOAK_CR_NAME to rhsso-instance — RHBK installs typically use name "keycloak".
+# Prefer an explicit k8s.keycloak.org Keycloak CR in this namespace when present.
+_k8s_kc_for_wait=""
+if _k8s_kc_for_wait=$(resolve_k8s_keycloak_cr_name "$KEYCLOAK_NS"); then
+    KEYCLOAK_CR_NAME="$_k8s_kc_for_wait"
+    if oc get "keycloaks.k8s.keycloak.org/$KEYCLOAK_CR_NAME" -n "$KEYCLOAK_NS" &>/dev/null; then
+        KEYCLOAK_CRD="keycloaks"
+    else
+        KEYCLOAK_CRD="keycloak"
+    fi
+else
+    if ! oc get "$KEYCLOAK_CRD" "$KEYCLOAK_CR_NAME" -n "$KEYCLOAK_NS" &>/dev/null; then
+        KEYCLOAK_CR_NAME="rhsso-instance"
+        KEYCLOAK_CRD="keycloaks"
+        if ! oc get "$KEYCLOAK_CRD" "$KEYCLOAK_CR_NAME" -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
+            KEYCLOAK_CRD="keycloak"
+        fi
+    fi
 fi
 
 MAX_WAIT_KEYCLOAK=300
@@ -576,19 +656,61 @@ fi
 MAX_WAIT_KC_REALM_CLIENT="${MAX_WAIT_KC_REALM_CLIENT:-600}"
 MAX_WAIT_KC_USER="${MAX_WAIT_KC_USER:-300}"
 
-# Step 3: Ensure OpenShift realm exists (using KeycloakRealm CR)
+# Red Hat build of Keycloak: realm is created via KeycloakRealmImport (k8s.keycloak.org/v2alpha1).
+# Legacy keycloak.org/v1alpha1 KeycloakRealm CRs are not reconciled by rhbk-operator (empty .status).
+USE_KEYCLOAK_REALM_IMPORT=false
+KEYCLOAK_K8S_KEYCLOAK_CR_NAME=""
+if oc get crd keycloakrealmimports.k8s.keycloak.org >/dev/null 2>&1; then
+    if KEYCLOAK_K8S_KEYCLOAK_CR_NAME=$(resolve_k8s_keycloak_cr_name "$KEYCLOAK_NS"); then
+        USE_KEYCLOAK_REALM_IMPORT=true
+    fi
+fi
+
+# Step 3: Ensure OpenShift realm exists
 echo ""
 echo "Ensuring OpenShift realm exists..."
 REALM="openshift"
 REALM_CR_NAME="openshift"
+REALM_IMPORT_CR_NAME="${KEYCLOAK_REALM_IMPORT_CR_NAME:-openshift-realm-import}"
 
-# Check if KeycloakRealm CR exists (k8s.keycloak.org or legacy keycloak.org)
-if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
-    echo "✓ KeycloakRealm CR '${REALM_CR_NAME}' already exists"
+if [ "$USE_KEYCLOAK_REALM_IMPORT" = true ]; then
+    if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
+        echo "Note: Legacy KeycloakRealm '${REALM_CR_NAME}' (keycloak.org) may exist but is not driven by rhbk-operator."
+        echo "      Using KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' for Keycloak CR '${KEYCLOAK_K8S_KEYCLOAK_CR_NAME}'."
+    fi
+    if keycloakrealmimport_cr_exists "$KEYCLOAK_NS" "$REALM_IMPORT_CR_NAME"; then
+        echo "✓ KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' already exists"
+    else
+        echo "Creating KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' (Red Hat build of Keycloak)..."
+        if ! cat <<EOF | oc apply -f -
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: ${REALM_IMPORT_CR_NAME}
+  namespace: ${KEYCLOAK_NS}
+spec:
+  keycloakCRName: ${KEYCLOAK_K8S_KEYCLOAK_CR_NAME}
+  realm:
+    realm: ${REALM}
+    id: ${REALM}
+    displayName: Openshift Authentication Realm
+    enabled: true
+EOF
+        then
+            echo "Error: Failed to create KeycloakRealmImport CR"
+            exit 1
+        fi
+        echo "✓ KeycloakRealmImport CR created successfully"
+    fi
+    wait_keycloak_realm_import_done_or_exit "$KEYCLOAK_NS" "$REALM_IMPORT_CR_NAME"
 else
-    echo "Creating KeycloakRealm CR '${REALM_CR_NAME}'..."
-    
-    if ! cat <<EOF | oc apply -f -
+    # Legacy RH-SSO / keycloak.org operator: KeycloakRealm CR + instanceSelector app:sso
+    if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
+        echo "✓ KeycloakRealm CR '${REALM_CR_NAME}' already exists"
+    else
+        echo "Creating KeycloakRealm CR '${REALM_CR_NAME}'..."
+
+        if ! cat <<EOF | oc apply -f -
 apiVersion: keycloak.org/v1alpha1
 kind: KeycloakRealm
 metadata:
@@ -606,14 +728,26 @@ spec:
     id: ${REALM}
     realm: ${REALM}
 EOF
-    then
-        echo "Error: Failed to create KeycloakRealm CR"
-        exit 1
+        then
+            echo "Error: Failed to create KeycloakRealm CR"
+            exit 1
+        fi
+
+        echo "✓ KeycloakRealm CR created successfully"
     fi
-    
-    echo "✓ KeycloakRealm CR created successfully"
+    wait_keycloak_realm_reconciled_or_exit "$KEYCLOAK_NS" "$REALM_CR_NAME"
 fi
-wait_keycloak_realm_reconciled_or_exit "$KEYCLOAK_NS" "$REALM_CR_NAME"
+
+if [ "$USE_KEYCLOAK_REALM_IMPORT" = true ] && ! oc get crd keycloakclients.k8s.keycloak.org >/dev/null 2>&1; then
+    echo ""
+    echo "Warning: Realm was applied via KeycloakRealmImport, but CRD keycloakclients.k8s.keycloak.org is not installed."
+    echo "  Legacy keycloak.org KeycloakClient / KeycloakUser CRs are often not reconciled by rhbk-operator (no .status)."
+    echo "  If the next steps hang: configure clients and users in the Keycloak admin console, add k8s.keycloak.org client CRDs,"
+    echo "  or use the RH-SSO operator path from ./01-keycloak.sh. Operator logs:"
+    echo "    oc logs -n ${KEYCLOAK_NS} deploy/rhbk-operator --tail=100"
+    echo "    (or: oc get pods -n ${KEYCLOAK_NS} | grep rhbk-operator)"
+    echo ""
+fi
 
 # Step 3a: Create OpenShift OAuth Client
 echo ""
