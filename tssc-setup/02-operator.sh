@@ -305,6 +305,28 @@ resolve_k8s_keycloak_cr_name() {
     return 1
 }
 
+# OpenShift OAuth callback for Keycloak IdP client redirect (https://HOST/oauth2callback/<idpName>).
+# Override with OPENSHIFT_OAUTH_REDIRECT_URI_OVERRIDE if route/oauth cannot be read.
+discover_openshift_oauth_keycloak_redirect_uri() {
+    local host idp
+    if [ -n "${OPENSHIFT_OAUTH_REDIRECT_URI_OVERRIDE:-}" ]; then
+        echo "${OPENSHIFT_OAUTH_REDIRECT_URI_OVERRIDE}"
+        return 0
+    fi
+    host=$(oc get route oauth-openshift -n openshift-authentication -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    if [ -z "$host" ]; then
+        return 1
+    fi
+    if [ -n "${OPENSHIFT_OIDC_IDP_NAME:-}" ]; then
+        idp="$OPENSHIFT_OIDC_IDP_NAME"
+    else
+        idp=$(oc get oauth cluster -o jsonpath='{range .spec.identityProviders[*]}{.name}{"\n"}{end}' 2>/dev/null | grep -iE 'keycloak|rhbk|rhsso|sso' | head -1 || true)
+        [ -z "$idp" ] && idp=$(oc get oauth cluster -o jsonpath='{.spec.identityProviders[0].name}' 2>/dev/null || true)
+        [ -z "$idp" ] && idp=keycloak
+    fi
+    echo "https://${host}/oauth2callback/${idp}"
+}
+
 keycloakrealmimport_cr_exists() {
     local ns=$1 name=$2
     oc get "keycloakrealmimports.k8s.keycloak.org/$name" -n "$ns" &>/dev/null
@@ -672,17 +694,31 @@ echo "Ensuring OpenShift realm exists..."
 REALM="openshift"
 REALM_CR_NAME="openshift"
 REALM_IMPORT_CR_NAME="${KEYCLOAK_REALM_IMPORT_CR_NAME:-openshift-realm-import}"
+# Passwords (shared with legacy KeycloakUser path below when not using realm import)
+KEYCLOAK_USER_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-116608}"
+KEYCLOAK_USER_PASSWORD_JDOE="${KEYCLOAK_JDOE_PASSWORD:-secure}"
+KEYCLOAK_USER_PASSWORD_USER1="${KEYCLOAK_USER1_PASSWORD:-116608}"
+KEYCLOAK_IDP_4_OCP_SECRET="${KEYCLOAK_IDP_4_OCP_CLIENT_SECRET:-idp-4-ocp-demo-secret}"
+OIDC_CLIENT_ID="trusted-artifact-signer"
 
 if [ "$USE_KEYCLOAK_REALM_IMPORT" = true ]; then
     if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
         echo "Note: Legacy KeycloakRealm '${REALM_CR_NAME}' (keycloak.org) may exist but is not driven by rhbk-operator."
         echo "      Using KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' for Keycloak CR '${KEYCLOAK_K8S_KEYCLOAK_CR_NAME}'."
     fi
+    OAUTH_REDIRECT_FOR_IDP=""
+    if ! OAUTH_REDIRECT_FOR_IDP=$(discover_openshift_oauth_keycloak_redirect_uri); then
+        echo "Warning: Could not read route oauth-openshift (set OPENSHIFT_OAUTH_REDIRECT_URI_OVERRIDE if needed)."
+        OAUTH_REDIRECT_FOR_IDP="${OPENSHIFT_OAUTH_FALLBACK_REDIRECT_URI:-https://oauth-openshift.apps.cluster.local/oauth2callback/keycloak}"
+    fi
+    echo "  OpenShift OAuth redirect URI for idp-4-ocp client: ${OAUTH_REDIRECT_FOR_IDP}"
+    echo "  idp-4-ocp client secret (set KEYCLOAK_IDP_4_OCP_CLIENT_SECRET / align OpenShift IdP): ${KEYCLOAK_IDP_4_OCP_SECRET}"
     if keycloakrealmimport_cr_exists "$KEYCLOAK_NS" "$REALM_IMPORT_CR_NAME"; then
-        echo "✓ KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' already exists"
+        echo "✓ KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' already exists (apply updates spec if changed)"
     else
-        echo "Creating KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' (Red Hat build of Keycloak)..."
-        if ! cat <<EOF | oc apply -f -
+        echo "Creating KeycloakRealmImport '${REALM_IMPORT_CR_NAME}' (Red Hat build of Keycloak; realm + clients + users)..."
+    fi
+    if ! cat <<EOF | oc apply -f -
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: KeycloakRealmImport
 metadata:
@@ -695,14 +731,94 @@ spec:
     id: ${REALM}
     displayName: Openshift Authentication Realm
     enabled: true
+    sslRequired: external
+    clients:
+      - clientId: idp-4-ocp
+        name: idp-4-ocp
+        enabled: true
+        protocol: openid-connect
+        publicClient: false
+        clientAuthenticatorType: client-secret
+        secret: ${KEYCLOAK_IDP_4_OCP_SECRET}
+        standardFlowEnabled: true
+        implicitFlowEnabled: false
+        directAccessGrantsEnabled: true
+        serviceAccountsEnabled: true
+        redirectUris:
+          - "${OAUTH_REDIRECT_FOR_IDP}"
+          - "urn:ietf:wg:oauth:2.0:oob"
+        webOrigins:
+          - "+"
+        defaultClientScopes:
+          - profile
+          - email
+          - roles
+          - acr
+          - web-origins
+      - clientId: ${OIDC_CLIENT_ID}
+        name: ${OIDC_CLIENT_ID}
+        enabled: true
+        protocol: openid-connect
+        publicClient: true
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: true
+        redirectUris:
+          - "http://localhost/auth/callback"
+          - "urn:ietf:wg:oauth:2.0:oob"
+        webOrigins:
+          - "+"
+        defaultClientScopes:
+          - profile
+          - email
+        protocolMappers:
+          - name: audience-mapper
+            protocol: openid-connect
+            protocolMapper: oidc-audience-mapper
+            consentRequired: false
+            config:
+              included.client.audience: "${OIDC_CLIENT_ID}"
+              "id.token.claim": "true"
+              "access.token.claim": "true"
+        attributes:
+          access.token.lifespan: "300"
+    users:
+      - username: admin
+        email: admin@demo.redhat.com
+        emailVerified: true
+        enabled: true
+        credentials:
+          - type: password
+            value: "${KEYCLOAK_USER_PASSWORD}"
+            temporary: false
+      - username: jdoe
+        email: jdoe@redhat.com
+        emailVerified: true
+        enabled: true
+        firstName: Jane
+        lastName: Doe
+        credentials:
+          - type: password
+            value: "${KEYCLOAK_USER_PASSWORD_JDOE}"
+            temporary: false
+      - username: user1
+        email: user1@demo.redhat.com
+        emailVerified: true
+        enabled: true
+        credentials:
+          - type: password
+            value: "${KEYCLOAK_USER_PASSWORD_USER1}"
+            temporary: false
 EOF
-        then
-            echo "Error: Failed to create KeycloakRealmImport CR"
-            exit 1
-        fi
-        echo "✓ KeycloakRealmImport CR created successfully"
+    then
+        echo "Error: Failed to apply KeycloakRealmImport CR"
+        exit 1
     fi
+    echo "✓ KeycloakRealmImport applied (realm openshift with idp-4-ocp, ${OIDC_CLIENT_ID}, users admin/jdoe/user1)"
     wait_keycloak_realm_import_done_or_exit "$KEYCLOAK_NS" "$REALM_IMPORT_CR_NAME"
+    echo ""
+    echo "Skipping legacy keycloak.org KeycloakRealm / KeycloakClient / KeycloakUser steps (rhbk-operator does not reconcile them)."
+    echo "If the openshift realm already existed before this import, Keycloak may not overwrite it; delete the realm in Keycloak Admin"
+    echo "and delete KeycloakRealmImport '${REALM_IMPORT_CR_NAME}', then re-run this script to apply clients and users."
 else
     # Legacy RH-SSO / keycloak.org operator: KeycloakRealm CR + instanceSelector app:sso
     if keycloakrealm_cr_exists "$KEYCLOAK_NS" "$REALM_CR_NAME"; then
@@ -738,18 +854,8 @@ EOF
     wait_keycloak_realm_reconciled_or_exit "$KEYCLOAK_NS" "$REALM_CR_NAME"
 fi
 
-if [ "$USE_KEYCLOAK_REALM_IMPORT" = true ] && ! oc get crd keycloakclients.k8s.keycloak.org >/dev/null 2>&1; then
-    echo ""
-    echo "Warning: Realm was applied via KeycloakRealmImport, but CRD keycloakclients.k8s.keycloak.org is not installed."
-    echo "  Legacy keycloak.org KeycloakClient / KeycloakUser CRs are often not reconciled by rhbk-operator (no .status)."
-    echo "  If the next steps hang: configure clients and users in the Keycloak admin console, add k8s.keycloak.org client CRDs,"
-    echo "  or use the RH-SSO operator path from ./01-keycloak.sh. Operator logs:"
-    echo "    oc logs -n ${KEYCLOAK_NS} deploy/rhbk-operator --tail=100"
-    echo "    (or: oc get pods -n ${KEYCLOAK_NS} | grep rhbk-operator)"
-    echo ""
-fi
-
-# Step 3a: Create OpenShift OAuth Client
+if [ "$USE_KEYCLOAK_REALM_IMPORT" != true ]; then
+# Step 3a: Create OpenShift OAuth Client (legacy keycloak.org — reconciled by RH-SSO operator)
 echo ""
 echo "Creating OpenShift OAuth Client..."
 CLIENT_CR_NAME_OCP="openshift"
@@ -780,7 +886,6 @@ echo "Creating Keycloak User for authentication..."
 KEYCLOAK_USER_NAME="admin"
 KEYCLOAK_USER_USERNAME="admin"
 KEYCLOAK_USER_EMAIL="admin@demo.redhat.com"
-KEYCLOAK_USER_PASSWORD="116608"  # Default password, can be changed
 
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME"; then
@@ -827,7 +932,6 @@ echo "Creating jdoe Keycloak User for signing..."
 KEYCLOAK_USER_NAME_JDOE="jdoe"
 KEYCLOAK_USER_USERNAME_JDOE="jdoe"
 KEYCLOAK_USER_EMAIL_JDOE="jdoe@redhat.com"
-KEYCLOAK_USER_PASSWORD_JDOE="secure"
 
 # Check if KeycloakUser CR already exists
 if keycloakuser_cr_exists "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_JDOE"; then
@@ -896,7 +1000,6 @@ wait_keycloak_user_reconciled_or_exit "$KEYCLOAK_NS" "$KEYCLOAK_USER_NAME_USER1"
 # Step 4: Create OAuth Client in Red Hat SSO (Keycloak) for Trusted Artifact Signer
 echo ""
 echo "Creating OAuth Client in Red Hat SSO (Keycloak) for Trusted Artifact Signer..."
-OIDC_CLIENT_ID="trusted-artifact-signer"
 CLIENT_CR_NAME="trusted-artifact-signer"
 
 # Check if KeycloakClient CR already exists
@@ -978,6 +1081,8 @@ if oc get secret $CLIENT_SECRET_NAME -n "$KEYCLOAK_NS" >/dev/null 2>&1; then
     fi
 else
     echo "Note: Client secret '${CLIENT_SECRET_NAME}' not yet created (may be created after Trusted Artifact Signer installation)"
+fi
+
 fi
 
 # Step 5: Install RHTAS Operator
