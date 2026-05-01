@@ -154,7 +154,25 @@ Platform:      linux/amd64
 [source,sh,subs="attributes",role=execute]
 ----
 export TUF_URL=$(oc get tuf -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
-export OIDC_ISSUER_URL=https://$(oc get route keycloak -n rhsso | tail -n 1 | awk '{print $2}')/auth/realms/openshift
+# Issuer must match Fulcio's configured OIDC issuer (path may be /realms/... or /auth/realms/...).
+export OIDC_ISSUER_URL=$(oc get fulcio -n trusted-artifact-signer -o jsonpath='{.items[0].spec.config.oidcIssuers[0].issuer}' 2>/dev/null)
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  export OIDC_ISSUER_URL=$(oc get fulcio -n trusted-artifact-signer -o jsonpath='{.items[0].spec.config.OIDCIssuers[0].Issuer}' 2>/dev/null)
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  export OIDC_ISSUER_URL=$(oc get securesign -n trusted-artifact-signer -o jsonpath='{.items[0].spec.fulcio.config.oidcIssuers[0].issuer}' 2>/dev/null)
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  export OIDC_ISSUER_URL=$(oc get securesign -n trusted-artifact-signer -o jsonpath='{.items[0].spec.fulcio.config.OIDCIssuers[0].Issuer}' 2>/dev/null)
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  KK_HOST=$(oc get route keycloak -n keycloak -o jsonpath='{.spec.host}' 2>/dev/null)
+  if [ -n "$KK_HOST" ]; then export OIDC_ISSUER_URL="https://${KK_HOST}/realms/openshift"; fi
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  KK_HOST=$(oc get route keycloak -n rhsso -o jsonpath='{.spec.host}' 2>/dev/null)
+  if [ -n "$KK_HOST" ]; then export OIDC_ISSUER_URL="https://${KK_HOST}/auth/realms/openshift"; fi
+fi
 export COSIGN_FULCIO_URL=$(oc get fulcio -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
 export COSIGN_REKOR_URL=$(oc get rekor -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
 export COSIGN_MIRROR=$TUF_URL
@@ -167,7 +185,7 @@ export SIGSTORE_FULCIO_URL=$COSIGN_FULCIO_URL
 export SIGSTORE_OIDC_ISSUER=$COSIGN_OIDC_ISSUER
 export SIGSTORE_REKOR_URL=$COSIGN_REKOR_URL
 export REKOR_REKOR_SERVER=$COSIGN_REKOR_URL
-# to verify URL endpoints have been set
+echo "$OIDC_ISSUER_URL"
 env | grep URL
 ----
 +
@@ -281,7 +299,7 @@ By typing 'y', you attest that you grant (or have permission to grant) and agree
 error opening browser: exec: "xdg-open": executable file not found in $PATH
 Go to the following link in a browser:
 
-         https://keycloak-rhsso.apps.cluster-l2ktc.l2ktc.sandbox75.opentlc.com/auth/realms/openshift/protocol/openid-connect/auth?access_type=online&client_id=trusted-artifact-signer&code_challenge=JHFlN4cLdRCGJWjkGf1S1nKYO9Nc-bnC6bhwkZXoS3M&code_challenge_method=S256&nonce=2qDckQCVBACjnviJ8bdxIWwPh1r&redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob&response_type=code&scope=openid+email&state=2qDckRnXkzmspwUHxF3f6K3NX67
+         https://sso.apps.<your-cluster>.<domain>/realms/openshift/protocol/openid-connect/auth?access_type=online&client_id=trusted-artifact-signer&code_challenge=...
 Enter verification code:
 ----
 +
