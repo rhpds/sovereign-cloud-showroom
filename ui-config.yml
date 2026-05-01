@@ -13,8 +13,8 @@ view_switcher:
 tabs:
 - name: Red Hat OpenShift Console
   url: 'https://console-openshift-console.${DOMAIN}'
-# - name: Red Hat Advanced Cluster Security
-#   url: 'https://central-stackrox.${DOMAIN}'
+- name: Red Hat Advanced Cluster Security
+  url: 'https://central-reencrypt-stackrox.${DOMAIN}'
 - name: Red Hat Quay
   url: 'https://quay.${DOMAIN}'
 - name: Red Hat OpenShift AI
