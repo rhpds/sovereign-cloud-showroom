@@ -4,7 +4,7 @@
 
 [NOTE]
 ====
-This page is optional reference and extra hands-on material. It is not part of the four numbered core lab modules. For the main path, complete xref:index.adoc#lab-modules[Modules 1 through 4] in the order listed on the intro page.
+This page is optional reference and extra hands-on material. For the main lab path, complete xref:index.adoc#lab-modules[Modules 1 through 4] in the order listed on the intro page; use Module 5 when you want additional exercises.
 ====
 
 [[deploying-more-policies-to-the-emea-cluster]]

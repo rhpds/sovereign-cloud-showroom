@@ -9,7 +9,7 @@ build:
 	@echo "Removing old site..."
 	@rm -rf ./www/*
 	@echo "Building new site..."
-	@npx antora --fetch default-site.yml
+	@npx antora --fetch site.yml
 	@echo "Build process complete. Check the ./www folder for the generated site."
 	@echo "To view the site locally, run: make serve"
 	@echo "If already running then browse to http://localhost:8080/index.html"
@@ -42,7 +42,7 @@ reset:
 	@rm -rf ./www/*
 	@echo "Old site removed"
 	@echo "Building new site"
-	@npx antora --fetch default-site.yml
+	@npx antora --fetch site.yml
 	@echo "Starting serve process..."
 	@podman run -d --rm --name showroom-httpd -p 8080:8080 \
 		-v "./www:/var/www/html/:z" \

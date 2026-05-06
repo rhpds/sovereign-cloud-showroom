@@ -35,12 +35,13 @@ Before beginning this lab, you should have:
 [[lab-modules]]
 == Lab Modules
 
-This lab is organized into four modules:
+This lab is organized into five modules:
 
 * xref:module-01.adoc[Module 1: Operations and Security] - Multi-environment cluster and workload management
 * xref:module-02.adoc[Module 2: Assurance] - Cluster conformance, compliance, and security insights
 * xref:module-03.adoc[Module 3: Technology and Supply Chain] - Secure supply chain and SLSA framework
 * xref:module-04.adoc[Module 4: Data and AI] - Data pipelines and AI compute capabilities
+* xref:module-05.adoc[Module 5: Supplementary modules] - Optional extra hands-on material
 * xref:conclusion.adoc[Conclusion] - Summary, key takeaways, and next steps
 
 [[getting-started]]
@@ -52,7 +53,7 @@ The environment has also already been pre-configured for you with the following 
 
 * On the right there are five tabs:
 ** *OpenShift Console*: this is where you will spend the majority of the time configuring the various environments and applications
-** *Advanced Cluster Security*: the console for configuring security related items (open {acs_route} in a separate browser tab)
+** *Advanced Cluster Security*: the console for OpenShiftsecurity related activities.
 ** *Quay*: the console for image registry and artifacts
 ** *OpenShift AI*: the console for building and training AI models via Jupyter notebooks and specialized accelerators
 ** *Terminal*: command line access to the OpenShift environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
