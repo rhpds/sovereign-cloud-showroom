@@ -23,7 +23,7 @@ Red Hat Advanced Cluster Management for Kubernetes (RHACM) simplifies the deploy
 *For the first exercise, you will deploy a new cluster in the EMEA region so that you will have local, US and EMEA clusters to deploy your applications to.*
 
 .Procedure
-. On the top left of the OpenShift Console, click the "Hamburger" drop down and select *Fleet Management -> *Infrastructure* -> *Clusters*
+. On the top left of the OpenShift Console, click the "Hamburger" drop down and select *Fleet Management* -> *Infrastructure* -> *Clusters*
 +
 image::08-dropdown-menu.png[link=self, window=blank, width=100%, Create VM]
 +
