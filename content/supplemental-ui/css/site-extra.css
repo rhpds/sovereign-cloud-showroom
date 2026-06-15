@@ -3,6 +3,10 @@
     align-items: flex-start;
   }
 
+.doc .imageblock.text-center {
+    align-items: center;
+}
+
 /* add a shadow to the image container */
 .doc .bordershadow .content{
     border: solid 1px black;

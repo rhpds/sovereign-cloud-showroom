@@ -134,6 +134,7 @@ Administrator login credentials:
 [[whats-next]]
 == What's Next
 
-image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWtnYWVvd3NmdHB6NXhkZjE1N3BzdGpyZG5vajIzeTY2NDE5a2J6NiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3og0ICZh82LEsNjHoc/giphy.gif[Celebration, width=400, align="center", link=self, window=blank]
+[.text-center]
+image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWtnYWVvd3NmdHB6NXhkZjE1N3BzdGpyZG5vajIzeTY2NDE5a2J6NiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3og0ICZh82LEsNjHoc/giphy.gif[Celebration, width=400, link=self, window=blank]
 
 Proceed to Module 1 and move through the modules in order. Good luck!

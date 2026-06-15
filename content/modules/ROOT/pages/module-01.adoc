@@ -274,9 +274,12 @@ The *Cluster* set needs to be set to Global and the label values to be present i
 +
 . Verify all of the information is correct and click *Submit*.
 
+[INFO]
 ====
-If all steps were followed, you will be able to see the application deployed with all green checkmarks - This might take 15 minutes to complete so feel free to continue to the next module.
+If all steps were followed, you will be able to see the application deployed with all green checkmarks
 ====
+
+NOTE: This may take 5ish minutes to complete so feel free to continue to the next module.
 
 image::03-app-complete.png[link=self, window=blank, width=100%, ACM App Placement US]
 
@@ -450,4 +453,5 @@ If you want to deploy more policies to the EMEA cluster, you can do so by follow
 
 * **Automated compliance** -- Define and enforce policies as code to meet residency and organizational requirements.
 
-image::https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExaHNuaGJoenozbDg5dnZ6eXNwbmluazg2MDM3c2doMHRybnV0YnJ6bSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/VhWVAa7rUtT3xKX6Cd/giphy.gif[Celebration, width=400, align="center", link=self, window=blank]
+[.text-center]
+image::https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExaHNuaGJoenozbDg5dnZ6eXNwbmluazg2MDM3c2doMHRybnV0YnJ6bSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/VhWVAa7rUtT3xKX6Cd/giphy.gif[Celebration, width=400, link=self, window=blank]
