@@ -43,7 +43,6 @@ image::04-openshift-ai-dashboard-01.png[OpenShift AI Dashboard Login, width=100%
 +
 . Click on the Hamburger bar in the top left and navigate to the *Applications* -> *Explore* section. Here you can see the available applications that can be added to your cluster.
 +
-+
 image::04-openshift-ai-dashboard-02.png[OpenShift AI Applications View, width=100%, link=self, window=blank]
 +
 . Next, navigate to the *AI Hub* -> *Deployments* section.
