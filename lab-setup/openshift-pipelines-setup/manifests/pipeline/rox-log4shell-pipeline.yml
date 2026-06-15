@@ -1,0 +1,31 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: rox-log4shell-pipeline
+  namespace: pipeline-demo
+spec:
+  description: >-
+    RHACS roxctl scan of quay.io/mfoster/log4shell:latest (fixed image; no parameters).
+  tasks:
+    - name: image-scan
+      taskRef:
+        name: rox-image-scan
+      params:
+        - name: image
+          value: quay.io/mfoster/log4shell:latest
+        - name: rox_api_token
+          value: roxsecrets
+        - name: rox_central_endpoint
+          value: roxsecrets
+        - name: output_format
+          value: json
+    - name: image-check
+      taskRef:
+        name: rox-image-check
+      params:
+        - name: image
+          value: quay.io/mfoster/log4shell:latest
+        - name: rox_api_token
+          value: roxsecrets
+        - name: rox_central_endpoint
+          value: roxsecrets

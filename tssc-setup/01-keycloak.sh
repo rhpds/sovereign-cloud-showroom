@@ -60,6 +60,28 @@ log "✓ Cluster admin privileges confirmed"
 log "Prerequisites validated successfully"
 log ""
 
+# True when CSV is Succeeded and the operator controller is actually running (not inferred from Subscription).
+rhsso_operator_ready_in_namespace() {
+    local ns=$1 csv_name phase podc
+    [ -z "$ns" ] && return 1
+    oc get namespace "$ns" >/dev/null 2>&1 || return 1
+    csv_name=$(oc get csv -n "$ns" -o name 2>/dev/null | grep rhsso-operator | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || true)
+    if [ -z "$csv_name" ]; then
+        csv_name=$(oc get csv -n "$ns" -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    fi
+    [ -z "$csv_name" ] && return 1
+    phase=$(oc get csv "$csv_name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    [ "$phase" = "Succeeded" ] || return 1
+    podc=$(oc get pods -n "$ns" -l name=rhsso-operator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+    if [ "${podc:-0}" -ge 1 ]; then
+        return 0
+    fi
+    if oc get pods -n "$ns" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qi rhsso-operator; then
+        return 0
+    fi
+    return 1
+}
+
 # Check if RHSSO Operator is already installed
 log "Checking if RHSSO Operator is already installed..."
 NAMESPACE="rhsso"
@@ -67,28 +89,12 @@ OPERATOR_INSTALLED=false
 
 if oc get namespace $NAMESPACE >/dev/null 2>&1; then
     log "Namespace $NAMESPACE already exists"
-    
-    # Check for existing subscription
-    if oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE >/dev/null 2>&1; then
-        CURRENT_CSV=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
-        if [ -z "$CURRENT_CSV" ]; then
-            log "Subscription exists but CSV not yet determined, proceeding with installation..."
-        else
-            CSV_PHASE=$(oc get csv $CURRENT_CSV -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        
-            if [ "$CSV_PHASE" = "Succeeded" ]; then
-                log "✓ RHSSO Operator is already installed and running"
-                log "  Installed CSV: $CURRENT_CSV"
-                log "  Status: $CSV_PHASE"
-                OPERATOR_INSTALLED=true
-                log "Skipping operator installation, but will proceed with Keycloak instance deployment..."
-            else
-                log "RHSSO Operator subscription exists but CSV is in phase: $CSV_PHASE"
-                log "Continuing with installation to ensure proper setup..."
-            fi
-        fi
+    if rhsso_operator_ready_in_namespace "$NAMESPACE"; then
+        log "✓ RHSSO Operator is already installed and running (CSV Succeeded + operator pods)"
+        OPERATOR_INSTALLED=true
+        log "Skipping operator installation, but will proceed with Keycloak instance deployment..."
     else
-        log "Namespace exists but no subscription found, proceeding with installation..."
+        log "RHSSO operator workload not fully ready in $NAMESPACE (CSV or operator pods); proceeding with installation steps..."
     fi
 else
     log "RHSSO Operator not found, proceeding with installation..."
@@ -224,12 +230,8 @@ EOF
     fi
     log "✓ Subscription created successfully"
 
-    # Verify subscription was created
-    log "Verifying subscription..."
+    log "Verifying operator install progress (CSV + pods, not Subscription status)..."
     sleep 3
-
-    SUBSCRIPTION_STATUS=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.state}' 2>/dev/null || echo "")
-    log "Subscription state: ${SUBSCRIPTION_STATUS:-unknown}"
 
     # Step 5: Wait for CSV to be created and installed
     log ""
@@ -252,7 +254,8 @@ EOF
         # Show progress every 10 seconds
         if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             log "  Progress check (${WAIT_COUNT}s/${MAX_WAIT}s):"
-            oc get csv,subscription.operators.coreos.com,installplan -n $NAMESPACE 2>/dev/null | head -5 || true
+            oc get csv,installplan.operators.coreos.com -n $NAMESPACE 2>/dev/null | head -5 || true
+            oc get pods -n $NAMESPACE --no-headers 2>/dev/null | head -5 || true
             log ""
         fi
         
@@ -262,8 +265,8 @@ EOF
 
     if [ "$CSV_CREATED" = false ]; then
         warning "CSV not created after ${MAX_WAIT} seconds. Current status:"
-        oc get csv,subscription.operators.coreos.com,installplan -n $NAMESPACE
-        warning "CSV may still be installing. Check subscription status: oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE"
+        oc get csv,installplan.operators.coreos.com -n $NAMESPACE
+        warning "CSV may still be installing. Check: oc get csv -n $NAMESPACE && oc get pods -n $NAMESPACE"
     fi
 
     # Get the CSV name
@@ -296,10 +299,7 @@ EOF
     log "CSV status:"
     oc get csv -n $NAMESPACE 2>/dev/null || log "  No CSV found"
     log ""
-    log "Subscription status:"
-    oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE 2>/dev/null || log "  No subscription found"
-    log ""
-    log "Pod status:"
+    log "Operator pod status:"
     oc get pods -n $NAMESPACE 2>/dev/null || log "  No pods found"
     log ""
 
@@ -347,7 +347,7 @@ else
         CSV_NAME=$(oc get csv -n $NAMESPACE -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     fi
     if [ -z "$CSV_NAME" ]; then
-        CSV_NAME=$(oc get subscription.operators.coreos.com rhsso-operator -n $NAMESPACE -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
+        CSV_NAME=$(oc get csv -n $NAMESPACE --no-headers 2>/dev/null | grep -i rhsso | head -1 | awk '{print $1}' || echo "")
     fi
     
     log ""
@@ -375,13 +375,17 @@ log ""
 KEYCLOAK_CR_NAME="rhsso-instance"
 # legacy = keycloak.org/v1alpha1 (RH-SSO operator); rhbk = k8s.keycloak.org/v2 (Red Hat build of Keycloak operator)
 KEYCLOAK_API="legacy"
+# Short name "keycloaks" is ambiguous when both operators' CRDs exist — always use full resource for RHBK.
+KEYCLOAK_RHBK_RES="keycloaks.k8s.keycloak.org"
+KEYCLOAK_LEGACY_RES="keycloaks.keycloak.org"
+CR_EXISTS=false
 
 # Red Hat build of Keycloak: Keycloak CR is k8s.keycloak.org (v2alpha1), usually namespace "keycloak".
 # Legacy keycloak.org/v1alpha1 is not installed on those clusters — use existing CR only.
 if oc get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1; then
     for kns in keycloak rhsso; do
         oc get namespace "$kns" >/dev/null 2>&1 || continue
-        kcname=$(oc get keycloaks -n "$kns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        kcname=$(oc get "$KEYCLOAK_RHBK_RES" -n "$kns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
         if [ -n "$kcname" ]; then
             NAMESPACE="$kns"
             KEYCLOAK_CR_NAME="$kcname"
@@ -405,8 +409,8 @@ elif oc get crd keycloak.k8s.keycloak.org >/dev/null 2>&1 || oc get crd keycloak
     log "Detected Keycloak CRD: keycloak"
     KEYCLOAK_CRD="keycloak"
 else
-    # Try to determine by attempting to list resources
-    if oc get keycloaks -n $NAMESPACE >/dev/null 2>&1; then
+    # Try to determine by attempting to list resources (prefer legacy API name when both CRDs exist)
+    if oc get "$KEYCLOAK_LEGACY_RES" -n $NAMESPACE >/dev/null 2>&1; then
         KEYCLOAK_CRD="keycloaks"
         log "Using resource name: keycloaks (detected via API)"
     elif oc get keycloak -n $NAMESPACE >/dev/null 2>&1; then
@@ -420,13 +424,12 @@ else
 fi
 
 # Check if Keycloak CR already exists
-CR_EXISTS=false
 if oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE >/dev/null 2>&1; then
     CR_EXISTS=true
 else
     # Try the other resource name in case detection was wrong
     if [ "$KEYCLOAK_CRD" = "keycloak" ]; then
-        if oc get keycloaks $KEYCLOAK_CR_NAME -n $NAMESPACE >/dev/null 2>&1; then
+        if oc get "$KEYCLOAK_LEGACY_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE >/dev/null 2>&1; then
             KEYCLOAK_CRD="keycloaks"
             CR_EXISTS=true
             log "Found CR using resource name: keycloaks"
@@ -443,7 +446,7 @@ else
     if [ "$CR_EXISTS" = false ]; then
         EXISTING_CRS=$(oc get $KEYCLOAK_CRD -n $NAMESPACE -o name 2>/dev/null || echo "")
         if [ -z "$EXISTING_CRS" ] && [ "$KEYCLOAK_CRD" = "keycloak" ]; then
-            EXISTING_CRS=$(oc get keycloaks -n $NAMESPACE -o name 2>/dev/null || echo "")
+            EXISTING_CRS=$(oc get "$KEYCLOAK_LEGACY_RES" -n $NAMESPACE -o name 2>/dev/null || echo "")
             if [ -n "$EXISTING_CRS" ]; then
                 KEYCLOAK_CRD="keycloaks"
                 log "Found existing Keycloak CRs, using resource name: keycloaks"
@@ -458,13 +461,41 @@ else
 fi
 fi
 
+# Cluster has only Red Hat build of Keycloak (k8s.keycloak.org): legacy keycloak.org CRD is absent.
+# Re-discover with explicit API if short-name discovery missed the instance (e.g. name is not rhsso-instance).
+if [ "$KEYCLOAK_API" = "legacy" ] && [ "$CR_EXISTS" = false ] && \
+        oc get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1 && \
+        ! oc get crd keycloaks.keycloak.org >/dev/null 2>&1; then
+    for kns in keycloak rhsso; do
+        oc get namespace "$kns" >/dev/null 2>&1 || continue
+        kcname=$(oc get "$KEYCLOAK_RHBK_RES" -n "$kns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        if [ -n "$kcname" ]; then
+            NAMESPACE="$kns"
+            KEYCLOAK_CR_NAME="$kcname"
+            KEYCLOAK_CRD="keycloaks"
+            KEYCLOAK_API="rhbk"
+            CR_EXISTS=true
+            log "Using existing Red Hat build of Keycloak '$KEYCLOAK_CR_NAME' in namespace $NAMESPACE (legacy keycloak.org/v1alpha1 is not installed on this cluster)"
+            break
+        fi
+    done
+fi
+
+# Unambiguous resource for oc get (short name "keycloaks" matches two API groups on some clusters)
+KEYCLOAK_GET_RES="$KEYCLOAK_CRD"
+if [ "$KEYCLOAK_API" = "rhbk" ]; then
+    KEYCLOAK_GET_RES="$KEYCLOAK_RHBK_RES"
+elif [ "$KEYCLOAK_CRD" = "keycloaks" ]; then
+    KEYCLOAK_GET_RES="$KEYCLOAK_LEGACY_RES"
+fi
+
 if [ "$CR_EXISTS" = true ]; then
     log "Keycloak CR '$KEYCLOAK_CR_NAME' already exists"
     
     # Check if it's ready (RH-SSO uses .status.ready; RHBK k8s.keycloak.org uses status.conditions)
     if [ "$KEYCLOAK_API" = "rhbk" ]; then
-        KEYCLOAK_READY=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-        KEYCLOAK_PHASE=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "")
+        KEYCLOAK_READY=$(oc get "$KEYCLOAK_RHBK_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+        KEYCLOAK_PHASE=$(oc get "$KEYCLOAK_RHBK_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "")
     else
         KEYCLOAK_READY=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
         KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
@@ -473,7 +504,7 @@ if [ "$CR_EXISTS" = true ]; then
     if [ "$KEYCLOAK_READY" = "true" ] || [ "$KEYCLOAK_READY" = "True" ]; then
         log "✓ Keycloak instance is already ready"
         if [ "$KEYCLOAK_API" = "rhbk" ]; then
-            KEYCLOAK_EXTERNAL_URL=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostname.hostname}' 2>/dev/null || echo "")
+            KEYCLOAK_EXTERNAL_URL=$(oc get "$KEYCLOAK_RHBK_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostname.hostname}' 2>/dev/null || echo "")
             [ -n "$KEYCLOAK_EXTERNAL_URL" ] && KEYCLOAK_EXTERNAL_URL="https://${KEYCLOAK_EXTERNAL_URL}"
         else
             KEYCLOAK_EXTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.externalURL}' 2>/dev/null || echo "")
@@ -488,6 +519,9 @@ if [ "$CR_EXISTS" = true ]; then
 else
     if [ "$KEYCLOAK_API" = "rhbk" ]; then
         error "k8s.keycloak.org Keycloak CR expected but none found in namespaces keycloak or rhsso. Create a Keycloak instance or install the operator."
+    fi
+    if ! oc get crd keycloaks.keycloak.org >/dev/null 2>&1; then
+        error "Cannot create RH-SSO Keycloak (keycloak.org/v1alpha1): CRD keycloaks.keycloak.org is not installed. This cluster appears to use Red Hat build of Keycloak (k8s.keycloak.org) only. Re-run with: bash tssc-setup/setup.sh --skip-keycloak"
     fi
     log "Creating Keycloak CR '$KEYCLOAK_CR_NAME'..."
     
@@ -526,7 +560,7 @@ LAST_MESSAGE=""
 
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
     # Check if CR exists first
-    if ! oc get "$KEYCLOAK_CRD" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+    if ! oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
             warning "Keycloak CR '$KEYCLOAK_CR_NAME' not found. It may have been deleted or not created properly."
             if [ "$KEYCLOAK_API" = "legacy" ]; then
@@ -558,9 +592,9 @@ EOF
         KEYCLOAK_MESSAGE="CR not found"
     else
         if [ "$KEYCLOAK_API" = "rhbk" ]; then
-            KEYCLOAK_READY_STATUS=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
-            KEYCLOAK_PHASE=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.observedGeneration}' 2>/dev/null || echo "")
-            KEYCLOAK_MESSAGE=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="HasErrors")].message}' 2>/dev/null || echo "")
+            KEYCLOAK_READY_STATUS=$(oc get "$KEYCLOAK_RHBK_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+            KEYCLOAK_PHASE=$(oc get "$KEYCLOAK_RHBK_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.observedGeneration}' 2>/dev/null || echo "")
+            KEYCLOAK_MESSAGE=$(oc get "$KEYCLOAK_RHBK_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="HasErrors")].message}' 2>/dev/null || echo "")
         else
             KEYCLOAK_READY_STATUS=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
             KEYCLOAK_PHASE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
@@ -655,18 +689,18 @@ if [ "$KEYCLOAK_READY" = false ]; then
         log ""
         
         # Check if CR exists before trying to get status
-        if oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE >/dev/null 2>&1; then
+        if oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE >/dev/null 2>&1; then
             log "Current Keycloak CR status:"
-            oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o yaml | grep -A 10 "status:" || oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE
+            oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE -o yaml | grep -A 10 "status:" || oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE
             log ""
             
             # Check for reconciliation conflicts
-            KEYCLOAK_MESSAGE=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.message}' 2>/dev/null || echo "")
+            KEYCLOAK_MESSAGE=$(oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE -o jsonpath='{.status.message}' 2>/dev/null || echo "")
         else
         warning "Keycloak CR '$KEYCLOAK_CR_NAME' does not exist!"
         log ""
         log "Checking for available Keycloak CRs:"
-        oc get $KEYCLOAK_CRD -n $NAMESPACE 2>&1 || log "  No Keycloak CRs found"
+        oc get "$KEYCLOAK_GET_RES" -n $NAMESPACE 2>&1 || log "  No Keycloak CRs found"
         log ""
             log "Checking CRD availability:"
             oc get crd | grep -i keycloak || log "  No Keycloak CRD found"
@@ -677,7 +711,7 @@ if [ "$KEYCLOAK_READY" = false ]; then
         if echo "$KEYCLOAK_MESSAGE" | grep -qi "cannot be fulfilled\|modified\|conflict"; then
             log "Detected reconciliation conflicts. This is usually transient."
             log "The operator will continue retrying. You can check progress with:"
-            log "  oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o yaml | grep -A 5 status"
+            log "  oc get $KEYCLOAK_GET_RES $KEYCLOAK_CR_NAME -n $NAMESPACE -o yaml | grep -A 5 status"
             log "  oc logs -n $NAMESPACE -l name=rhsso-operator --tail=50"
         else
             if [ "$KEYCLOAK_MESSAGE" = "CR not found" ]; then
@@ -702,7 +736,7 @@ if [ "$KEYCLOAK_READY" = false ]; then
             fi
         fi
         log ""
-        log "To check status: oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE"
+        log "To check status: oc get $KEYCLOAK_GET_RES $KEYCLOAK_CR_NAME -n $NAMESPACE"
         log "To check pods: oc get pods -n $NAMESPACE"
     fi
 else
@@ -715,14 +749,14 @@ log "Retrieving Keycloak access information..."
 
 # Try to get URLs from CR first
 if [ "$KEYCLOAK_API" = "rhbk" ]; then
-    KEYCLOAK_EXTERNAL_URL=$(oc get keycloaks "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostname.hostname}' 2>/dev/null || echo "")
+    KEYCLOAK_EXTERNAL_URL=$(oc get "$KEYCLOAK_RHBK_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostname.hostname}' 2>/dev/null || echo "")
     [ -n "$KEYCLOAK_EXTERNAL_URL" ] && KEYCLOAK_EXTERNAL_URL="https://${KEYCLOAK_EXTERNAL_URL}"
     KEYCLOAK_INTERNAL_URL=""
     KEYCLOAK_CREDENTIAL_SECRET=""
 else
-    KEYCLOAK_EXTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.externalURL}' 2>/dev/null || echo "")
-    KEYCLOAK_INTERNAL_URL=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.internalURL}' 2>/dev/null || echo "")
-    KEYCLOAK_CREDENTIAL_SECRET=$(oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE -o jsonpath='{.status.credentialSecret}' 2>/dev/null || echo "")
+    KEYCLOAK_EXTERNAL_URL=$(oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE -o jsonpath='{.status.externalURL}' 2>/dev/null || echo "")
+    KEYCLOAK_INTERNAL_URL=$(oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE -o jsonpath='{.status.internalURL}' 2>/dev/null || echo "")
+    KEYCLOAK_CREDENTIAL_SECRET=$(oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE -o jsonpath='{.status.credentialSecret}' 2>/dev/null || echo "")
 fi
 
 # If CR doesn't exist, try to get URL from route
@@ -766,7 +800,7 @@ log "========================================================="
 log "Keycloak Installation Summary"
 log "========================================================="
 log "Namespace: $NAMESPACE"
-if oc get $KEYCLOAK_CRD $KEYCLOAK_CR_NAME -n $NAMESPACE >/dev/null 2>&1; then
+if oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n $NAMESPACE >/dev/null 2>&1; then
     log "Keycloak CR: $KEYCLOAK_CR_NAME"
     log "Status: Ready"
 else

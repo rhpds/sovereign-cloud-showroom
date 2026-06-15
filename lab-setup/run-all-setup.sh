@@ -1,7 +1,7 @@
 #!/bin/bash
-# Master script: lab scripts in order (01 → 07), then workstation tools (podman, cosign, gitsign).
+# Master script: lab scripts in order (01 → 08), then workstation tools (podman, cosign, gitsign).
 # The cosign/gitsign installer needs the trusted-artifact-signer client-server Route; it runs last so
-# parallel tssc-setup (see repo setup.sh) can deploy RHTAS first. 01: roxctl · … · 07: Perses · final: tools.
+# parallel tssc-setup (see repo setup.sh) can deploy RHTAS first. 01: roxctl · … · 08: pipelines · final: tools.
 
 set -euo pipefail
 
@@ -37,6 +37,7 @@ SCRIPTS=(
     "05-deploy-applications.sh"
     "06-configure-rhacs-settings.sh"
     "07-setup-perses-monitoring.sh"
+    "08-openshift-pipelines-setup.sh"
 )
 
 log "========================================================="
@@ -80,8 +81,8 @@ for idx in "${!SCRIPTS[@]}"; do
     log "Executing script $CURRENT/$TOTAL: $script"
     log "========================================================="
     
-    # 01–02, 04 (Central lives only on local-cluster), and 07 expect local-cluster first
-    if [[ "$script" =~ ^0[1-2]-|^04-|^07- ]]; then
+    # 01–02, 04 (Central lives only on local-cluster), 07, and 08 expect local-cluster first
+    if [[ "$script" =~ ^0[1-2]-|^04-|^07-|^08- ]]; then
         log "Ensuring local-cluster context for script $script..."
         if oc config use-context local-cluster >/dev/null 2>&1; then
             log "✓ Switched to local-cluster context"
@@ -105,8 +106,17 @@ for idx in "${!SCRIPTS[@]}"; do
     log ""
 done
 
+# QUAY_USER / QUAY_URL in ~/.bashrc for module-03 (retry: Quay route may appear after 05 or later in the pipeline).
+log "========================================================="
+log "Quay registry env for ~/.bashrc (module-03 podman login)"
+log "========================================================="
+chmod +x "$SCRIPT_DIR/configure-quay-bashrc.sh"
+# Short wait here — Quay may still be rolling out; a longer pass runs after workstation tools and from setup.sh.
+QUAY_BASHRC_MAX_WAIT="${QUAY_BASHRC_MAX_WAIT:-180}" bash "$SCRIPT_DIR/configure-quay-bashrc.sh" || true
+log ""
+
 # Podman + cosign + gitsign (same installer as tssc-setup; repo setup.sh passes --skip-workstation-tools to tssc).
-# The upstream installer downloads CLIs from the RHTAS client-server Route; run after 01–07 so parallel
+# The upstream installer downloads CLIs from the RHTAS client-server Route; run after 01–08 so parallel
 # tssc-setup is more likely to have deployed trusted-artifact-signer first.
 log "========================================================="
 log "Final step: workstation tools ($WORKSTATION_SCRIPT)"
@@ -123,6 +133,15 @@ if bash "$SCRIPT_DIR/$WORKSTATION_SCRIPT"; then
 else
     error "✗ Final step failed: $WORKSTATION_SCRIPT"
 fi
+log ""
+
+# Quay Route often appears after deploy + other operators; retry ~/.bashrc after full lab pipeline.
+log "========================================================="
+log "Quay registry env for ~/.bashrc (final pass after workstation tools)"
+log "========================================================="
+oc config use-context local-cluster >/dev/null 2>&1 || true
+chmod +x "$SCRIPT_DIR/configure-quay-bashrc.sh"
+bash "$SCRIPT_DIR/configure-quay-bashrc.sh" || true
 log ""
 
 # Restore original context if it was set

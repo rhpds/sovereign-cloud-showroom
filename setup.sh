@@ -3,7 +3,7 @@
 # On failure, prints re-run commands and keeps logs under $LOG_DIR.
 #
 # Already parallel at this layer:
-#   [1] lab-setup/run-all-setup.sh   — 01–07 in order, then workstation tools (cosign/gitsign need RHTAS route);
+#   [1] lab-setup/run-all-setup.sh   — 01–08 in order, then workstation tools (cosign/gitsign need RHTAS route);
 #       05 deploys local-cluster + aws-us in parallel via oc --context.
 #   [2] tssc-setup/setup.sh          — Keycloak → operator → deploy (--skip-workstation-tools: tools installed in [1]).
 #   [3] ai-setup/setup.sh            — operator + cluster checks run in parallel.
@@ -130,6 +130,39 @@ failed=0
 if [[ "$failed" -eq 0 ]]; then
   SETUP_ALL_OK=1
   echo -e "${GREEN}All three setup scripts completed successfully.${NC}"
+  # Quay for module-03 (podman login): wait/poll in hook script when present.
+  _quay_hook="${REPO_ROOT}/lab-setup/configure-quay-bashrc.sh"
+  if [[ -f "$_quay_hook" ]]; then
+    chmod +x "$_quay_hook" 2>/dev/null || true
+    QUAY_BASHRC_QUIET=1 bash "$_quay_hook" || true
+  fi
+  # Always persist QUAY_* here too: same shell as the user (kubeconfig/oc), and works if a fork omits the hook script.
+  if [[ -n "${HOME:-}" && -w "${HOME:-}" ]]; then
+    _bashrc="${HOME}/.bashrc"
+    oc config use-context local-cluster &>/dev/null || true
+    _quay_host=""
+    _quay_host=$(oc get route quay-quay -n quay -o jsonpath='{.spec.host}' 2>/dev/null) || true
+    if [[ -z "$_quay_host" ]]; then
+      _quay_host=$(oc get route quay -n quay -o jsonpath='{.spec.host}' 2>/dev/null) || true
+    fi
+    if [[ -n "$_quay_host" ]]; then
+      _quay_host="${_quay_host#https://}"
+      _quay_host="${_quay_host#http://}"
+      touch "$_bashrc" 2>/dev/null || true
+      if [[ -f "$_bashrc" ]]; then
+        sed -i '/^export QUAY_USER=/d' "$_bashrc" 2>/dev/null || true
+        sed -i '/^export QUAY_URL=/d' "$_bashrc" 2>/dev/null || true
+        {
+          echo ""
+          echo "# svc-lab (Quay — module-03)"
+          echo "export QUAY_USER=quayadmin"
+          echo "export QUAY_URL=\"${_quay_host}\""
+        } >>"$_bashrc" 2>/dev/null || true
+      fi
+    elif ! grep -q '^export QUAY_URL=' "$_bashrc" 2>/dev/null; then
+      echo -e "${YELLOW}Quay route not visible yet; when ready run: bash ${REPO_ROOT}/lab-setup/configure-quay-bashrc.sh${NC}"
+    fi
+  fi
   exit 0
 fi
 

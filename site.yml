@@ -1,0 +1,33 @@
+---
+site:
+  title: LB1161 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
+  start_page: modules::index.adoc
+
+content:
+  sources:
+  - url: .
+    start_path: content
+
+ui:
+  bundle:
+    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/latest/ui-bundle.zip
+    snapshot: true
+  supplemental_files:
+    - path: ./content/supplemental-ui
+    - path: ./content/lib
+    - path: .nojekyll
+    - path: ui.yml
+      contents: "static_files: [ .nojekyll, css/site-extra.css, js/buttons.js ]"
+
+runtime:
+  fetch: true
+  cache_dir: ./.cache/antora
+
+antora:
+  extensions:
+  - require: ./content/lib/dev-mode.js
+    enabled: false
+  - require: ./content/lib/inject-buttons.js
+
+output:
+  dir: ./www

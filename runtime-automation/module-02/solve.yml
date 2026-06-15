@@ -1,0 +1,295 @@
+---
+- name: Module 02 Assurance Solve
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    oc_bin: "oc --kubeconfig={{ k8s_kubeconfig }}"
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # Resolve runtime values
+    # -------------------------------------------------------------------------
+
+    - name: Get Quay route host
+      ansible.builtin.command: >-
+        oc --kubeconfig={{ k8s_kubeconfig }}
+        get route quay -n quay -o jsonpath='{.spec.host}'
+      register: r_quay_route
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set quay_console_url fact
+      ansible.builtin.set_fact:
+        quay_console_url: "{{ r_quay_route.stdout | default('') }}"
+
+    - name: Get RHACS central route host
+      ansible.builtin.command: >-
+        oc --kubeconfig={{ k8s_kubeconfig }}
+        get route central -n stackrox -o jsonpath='{.spec.host}'
+      register: r_acs_route
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set acs_route fact
+      ansible.builtin.set_fact:
+        acs_route: "{{ r_acs_route.stdout | default('') }}"
+
+    - name: Get RHACS admin password from secret
+      ansible.builtin.shell: >-
+        oc --kubeconfig={{ k8s_kubeconfig }}
+        get secret central-htpasswd -n stackrox
+        -o jsonpath='{.data.password}' | base64 -d
+      register: r_acs_password
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set acs_password fact
+      ansible.builtin.set_fact:
+        acs_password: "{{ r_acs_password.stdout | default('') }}"
+
+    # -------------------------------------------------------------------------
+    # block-01: Apply Image config to local-cluster (cluster-scoped)
+    # -------------------------------------------------------------------------
+
+    - name: Apply Image config with allowedRegistries on local-cluster
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: config.openshift.io/v1
+          kind: Image
+          metadata:
+            name: cluster
+          spec:
+            registrySources:
+              allowedRegistries:
+                - quay.io
+                - registry.redhat.io
+                - registry.access.redhat.com
+                - image-registry.openshift-image-registry.svc:5000
+                - gcr.io
+                - docker.io
+                - "{{ quay_console_url }}"
+      when: quay_console_url | length > 0
+      ignore_errors: true
+
+    - name: Verify Image config has allowedRegistries set
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: config.openshift.io/v1
+        kind: Image
+        name: cluster
+      register: r_image_config
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # block-05: Apply RHACS SecurityPolicy for Alpine package manager enforcement
+    # -------------------------------------------------------------------------
+
+    - name: Apply SecurityPolicy for Alpine package manager enforcement
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: config.stackrox.io/v1alpha1
+          kind: SecurityPolicy
+          metadata:
+            name: alpine-linux-package-manager-execution-patient-portal-enforcement
+            namespace: stackrox
+          spec:
+            policyName: Alpine Linux Package Manager Execution - Patient-Portal Enforcement
+            description: Alert when the Alpine Linux package manager (apk) is executed at runtime
+            rationale: >-
+              Use of package managers at runtime indicates that new software may be being
+              introduced into containers while they are running.
+            remediation: >-
+              Run 'apk --purge del apk-tools' in the image build for production containers.
+              Change applications to no longer use package managers at runtime, if applicable.
+            categories:
+              - Anomalous Activity
+              - Package Management
+            lifecycleStages:
+              - RUNTIME
+            eventSource: DEPLOYMENT_EVENT
+            severity: LOW_SEVERITY
+            enforcementActions:
+              - FAIL_KUBE_REQUEST_ENFORCEMENT
+              - KILL_POD_ENFORCEMENT
+            policySections:
+              - policyGroups:
+                  - fieldName: Process Name
+                    booleanOperator: OR
+                    values:
+                      - value: apk
+                      - value: apk-tools
+                      - value: apk update
+                      - value: apk add
+                      - value: apk remove
+                      - value: apk upgrade
+                      - value: apk del
+                      - value: apk cache
+                      - value: apk clean
+                      - value: apk info
+                      - value: apk show
+                      - value: apk version
+            mitreAttackVectors:
+              - tactic: TA0011
+                techniques:
+                  - T1105
+            criteriaLocked: false
+            mitreVectorsLocked: false
+            isDefault: false
+      ignore_errors: true
+
+    - name: Verify SecurityPolicy exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: config.stackrox.io/v1alpha1
+        kind: SecurityPolicy
+        name: alpine-linux-package-manager-execution-patient-portal-enforcement
+        namespace: stackrox
+      register: r_security_policy
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # block-08+09: Exec into frontend pod and run apk update
+    # RHACS KILL_POD_ENFORCEMENT will kill the pod (exit code 137) — that is
+    # the expected outcome. Use failed_when: false to allow the task to succeed.
+    # -------------------------------------------------------------------------
+
+    - name: Find frontend pod in patient-portal namespace
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        kind: Pod
+        namespace: patient-portal
+        label_selectors:
+          - "app=frontend"
+      register: r_frontend_pods
+      ignore_errors: true
+
+    - name: Set frontend pod name
+      ansible.builtin.set_fact:
+        frontend_pod: >-
+          {{
+            (r_frontend_pods.resources
+              | selectattr('status.phase', 'equalto', 'Running')
+              | list | first).metadata.name
+          }}
+      when: >-
+        r_frontend_pods.resources | default([])
+        | selectattr('status.phase', 'equalto', 'Running')
+        | list | length > 0
+
+    - name: Exec into frontend pod and run apk update (RHACS will kill pod — expected)
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        namespace: patient-portal
+        pod: "{{ frontend_pod }}"
+        command: "sh -c 'apk update; echo apk_exit=$?'"
+      when: frontend_pod is defined
+      register: r_apk_exec
+      failed_when: false
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # prose-02: Create RHACS compliance scan schedule via REST API
+    # -------------------------------------------------------------------------
+
+    - name: Create RHACS compliance scan schedule via API
+      ansible.builtin.uri:
+        url: "https://{{ acs_route }}/v2/compliance/scan/configurations"
+        method: POST
+        url_username: admin
+        url_password: "{{ acs_password }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: application/json
+        body_format: json
+        body:
+          scanName: acs-catch-all
+          scanConfig:
+            description: >-
+              Daily compliance scan for all profiles covering CIS, E8, Moderate,
+              NERC-CIP, PCI-DSS, and STIG standards for both platform and node-level checks
+            oneTimeScan: false
+            profiles:
+              - ocp4-cis
+              - ocp4-e8
+              - ocp4-nerc-cip
+              - ocp4-pci-dss
+              - ocp4-pci-dss-node
+              - ocp4-stig
+            scheduleConfig:
+              crontab: "0 0 * * *"
+            notifiers: []
+        validate_certs: false
+        timeout: 30
+        status_code: [200, 201, 409]
+      register: r_scan_schedule
+      when:
+        - acs_route | length > 0
+        - acs_password | length > 0
+      ignore_errors: true
+
+    - name: Trigger manual compliance scan run
+      ansible.builtin.uri:
+        url: >-
+          https://{{ acs_route }}/v2/compliance/scan/configurations/{{
+            r_scan_schedule.json.id | default('') }}/runs
+        method: POST
+        url_username: admin
+        url_password: "{{ acs_password }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: application/json
+        body_format: json
+        body: {}
+        validate_certs: false
+        timeout: 30
+        status_code: [200, 201, 202]
+      register: r_scan_run
+      when:
+        - acs_route | length > 0
+        - acs_password | length > 0
+        - r_scan_schedule is not skipped
+        - r_scan_schedule.status in [200, 201]
+        - r_scan_schedule.json.id | default('') | length > 0
+      ignore_errors: true
+
+    # -------------------------------------------------------------------------
+    # Report
+    # -------------------------------------------------------------------------
+
+    - name: Report solve status
+      ansible.builtin.debug:
+        msg: |
+          Image config (allowedRegistries): {{
+            'ok' if (
+              r_image_config.resources | default([]) | length > 0 and
+              (r_image_config.resources[0].spec.registrySources.allowedRegistries | default([])) | length > 0
+            ) else 'NOT ok'
+          }}
+          SecurityPolicy (apk enforcement): {{
+            'ok' if r_security_policy.resources | default([]) | length > 0
+            else 'NOT ok'
+          }}
+          Frontend pod apk exec (policy trigger): {{
+            'triggered (pod killed by RHACS as expected)' if (r_apk_exec.return_code | default(-1)) == 137
+            else ('triggered (unexpected exit: ' + (r_apk_exec.return_code | default('n/a') | string) + ')')
+            if frontend_pod is defined
+            else 'SKIPPED — no running frontend pod found'
+          }}
+          RHACS scan schedule: {{
+            'ok (id=' + (r_scan_schedule.json.id | default('unknown')) + ')'
+            if (r_scan_schedule.status | default(0)) in [200, 201]
+            else ('already exists' if (r_scan_schedule.status | default(0)) == 409
+            else 'NOT ok or skipped')
+          }}
+          Quay route resolved: {{ quay_console_url | default('NOT resolved') }}
+          RHACS route resolved: {{ acs_route | default('NOT resolved') }}

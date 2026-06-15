@@ -1,0 +1,47 @@
+[[conclusion]]
+
+= Conclusion
+
+[[what-youve-learned]]
+== What You've Learned
+
+Congratulations on completing this lab! You have worked through a hands-on sovereign cloud architecture using Red Hat OpenShift and its ecosystem of management, security, and AI tools.
+
+Throughout this lab, you:
+
+* Created and managed multi-environment OpenShift clusters using Red Hat Advanced Cluster Management (RHACM), including deploying a Hosted Control Plane cluster in an EMEA region
+* Deployed and managed virtual machines alongside containers from a single unified console
+* Used OpenShift GitOps with Argo CD to declaratively deploy applications across multiple clusters in different geographic regions
+* Defined and enforced compliance policies as code for both GDPR (EMEA) and NIST 800-53 (US) frameworks
+* Configured compliance scanning with RHACS across regional clusters and reviewed audit results
+* Enforced runtime security policies to detect and block anomalous behavior in production containers
+* Built, signed, and verified container images using cosign and Red Hat Trusted Artifact Signer
+* Deployed Red Hat OpenShift AI and ran Jupyter notebooks to demonstrate sovereign AI capabilities
+
+[[key-takeaways]]
+== Key Takeaways
+
+* *Sovereignty is achievable with open source* -- Red Hat's hybrid cloud approach enables organizations to deploy and manage their own sovereign cloud architectures without vendor lock-in.
+* *Policy as code scales governance* -- by codifying compliance requirements as Kubernetes-native policies, you can enforce data residency, security hardening, and audit requirements consistently across all clusters.
+* *Unified management reduces complexity* -- RHACM provides a single control plane for clusters, virtual machines, containers, and applications across geographic boundaries.
+* *Supply chain security is foundational* -- cryptographic signing and verification of container images ensures that only trusted, auditable software runs in your environments.
+* *AI sovereignty keeps data local* -- Red Hat OpenShift AI enables organizations to run AI workloads on their own infrastructure, maintaining control over sensitive data and models.
+
+[[next-steps]]
+== Next steps
+
+* Explore additional compliance profiles and custom policies for your regulatory requirements
+* Implement GitOps-driven policy management for production environments
+* Set up continuous compliance monitoring with automated reporting
+* Evaluate Red Hat OpenShift AI for your organization's AI and ML workloads
+
+[[references]]
+== References
+
+* link:https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes[Red Hat Advanced Cluster Management documentation^]
+* link:https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes[Red Hat Advanced Cluster Security documentation^]
+* link:https://docs.redhat.com/en/documentation/red_hat_openshift_ai_cloud_service[Red Hat OpenShift AI documentation^]
+* link:https://docs.sigstore.dev/cosign/overview[Sigstore cosign documentation^]
+* link:https://docs.redhat.com/en/documentation/red_hat_quay[Red Hat Quay documentation^]
+
+We hope you enjoyed this lab and gained practical experience building sovereign cloud architectures with Red Hat technologies.

@@ -1,0 +1,256 @@
+---
+- name: Module 04 - Data and AI Solve
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    # ocp-dedicated: student_ns is always empty — use discovery
+    notebook_namespace: "rhods-notebooks"
+    notebook_name: "basic-workbench"
+    notebook_image_ns: "redhat-ods-applications"
+    git_repo: "https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git"
+    notebook_file: "Student performance.ipynb"
+    notebook_dir: "/opt/app-root/src/Python-Artificial-Intelligence-Projects-for-Beginners"
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    # 1. Resolve the RHOAI notebook image from the ImageStream
+    # ------------------------------------------------------------------
+    - name: Fetch RHOAI notebook ImageStream tags
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: image.openshift.io/v1
+        kind: ImageStream
+        namespace: "{{ notebook_image_ns }}"
+        name: s2i-generic-data-science-notebook
+      register: r_imagestream
+      ignore_errors: true
+
+    - name: Set notebook image reference from ImageStream (latest tag)
+      ansible.builtin.set_fact:
+        notebook_image: >-
+          {{
+            (r_imagestream.resources[0].spec.tags
+             | selectattr('name', 'search', '2025')
+             | list | last).from.name
+            | default('image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:2025.2')
+          }}
+      when: r_imagestream.resources | default([]) | length > 0
+      ignore_errors: true
+
+    - name: Set fallback notebook image when ImageStream not found
+      ansible.builtin.set_fact:
+        notebook_image: >-
+          image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:2025.2
+      when: notebook_image is not defined
+
+    # ------------------------------------------------------------------
+    # 2. Ensure the notebook namespace exists
+    # ------------------------------------------------------------------
+    - name: Ensure notebook namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ notebook_namespace }}"
+            labels:
+              opendatahub.io/dashboard: "true"
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 3. Create PVC for notebook storage (must exist before Notebook CR)
+    # ------------------------------------------------------------------
+    - name: Create PVC for notebook storage
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ notebook_name }}"
+            namespace: "{{ notebook_namespace }}"
+            labels:
+              opendatahub.io/dashboard: "true"
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 20Gi
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 4. Check if Notebook CR already exists (idempotency)
+    # ------------------------------------------------------------------
+    - name: Check if Notebook CR already exists
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        api_version: kubeflow.org/v1
+        kind: Notebook
+        namespace: "{{ notebook_namespace }}"
+        name: "{{ notebook_name }}"
+      register: r_notebook_check
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 5. Create Notebook CR if it does not already exist
+    # ------------------------------------------------------------------
+    - name: Create Notebook CR (basic-workbench)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        state: present
+        definition:
+          apiVersion: kubeflow.org/v1
+          kind: Notebook
+          metadata:
+            name: "{{ notebook_name }}"
+            namespace: "{{ notebook_namespace }}"
+            annotations:
+              notebooks.opendatahub.io/inject-oauth: "true"
+              opendatahub.io/image-display-name: "Jupyter | Data Science | CPU | Python 3.12 | 2025.2"
+            labels:
+              app: "{{ notebook_name }}"
+              opendatahub.io/dashboard: "true"
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: "{{ notebook_name }}"
+                    image: "{{ notebook_image }}"
+                    imagePullPolicy: Always
+                    workingDir: /opt/app-root/src
+                    env:
+                      - name: NOTEBOOK_ARGS
+                        value: >-
+                          --ServerApp.port=8888
+                          --ServerApp.token=''
+                          --ServerApp.password=''
+                          --ServerApp.base_url=/notebook/{{ notebook_namespace }}/{{ notebook_name }}
+                          --ServerApp.quit_button=False
+                    resources:
+                      requests:
+                        cpu: "1"
+                        memory: 2Gi
+                      limits:
+                        cpu: "2"
+                        memory: 5Gi
+                    volumeMounts:
+                      - name: "{{ notebook_name }}"
+                        mountPath: /opt/app-root/src
+                readinessProbe:
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  httpGet:
+                    path: "/notebook/{{ notebook_namespace }}/{{ notebook_name }}/api"
+                    port: 8888
+                    scheme: HTTP
+                volumes:
+                  - name: "{{ notebook_name }}"
+                    persistentVolumeClaim:
+                      claimName: "{{ notebook_name }}"
+      when: r_notebook_check.resources | default([]) | length == 0
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 6. Wait for the notebook pod to become Running
+    # ------------------------------------------------------------------
+    - name: Wait for notebook pod to be Running (up to 5 min)
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        validate_certs: false
+        kind: Pod
+        namespace: "{{ notebook_namespace }}"
+        label_selectors:
+          - "app={{ notebook_name }}"
+      register: r_notebook_pods
+      until: >-
+        r_notebook_pods.resources | default([])
+        | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+      retries: 30
+      delay: 10
+      ignore_errors: true
+
+    - name: Set notebook pod name
+      ansible.builtin.set_fact:
+        notebook_pod: >-
+          {{
+            (r_notebook_pods.resources
+             | selectattr('status.phase', 'equalto', 'Running')
+             | list | first).metadata.name
+          }}
+      when: >-
+        r_notebook_pods.resources | default([])
+        | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 7. Check if git repo already cloned (idempotency)
+    # ------------------------------------------------------------------
+    - name: Check if repo already cloned in notebook pod
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        namespace: "{{ notebook_namespace }}"
+        pod: "{{ notebook_pod }}"
+        container: "{{ notebook_name }}"
+        command: "sh -c 'test -d /opt/app-root/src/Python-Artificial-Intelligence-Projects-for-Beginners && echo EXISTS || echo MISSING'"
+      register: r_repo_check
+      when: notebook_pod is defined
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 8. Clone AI projects repository into workbench pod
+    # ------------------------------------------------------------------
+    - name: Clone AI projects git repository into workbench pod
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        namespace: "{{ notebook_namespace }}"
+        pod: "{{ notebook_pod }}"
+        container: "{{ notebook_name }}"
+        command: >-
+          sh -c 'cd /opt/app-root/src &&
+          git clone https://github.com/mfosterrox/Python-Artificial-Intelligence-Projects-for-Beginners.git &&
+          echo CLONED'
+      register: r_git_clone
+      when:
+        - notebook_pod is defined
+        - r_repo_check.stdout is not defined or 'EXISTS' not in (r_repo_check.stdout | default(''))
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 9. Execute the Student performance notebook with nbconvert
+    # ------------------------------------------------------------------
+    - name: Execute Student performance notebook
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+        namespace: "{{ notebook_namespace }}"
+        pod: "{{ notebook_pod }}"
+        container: "{{ notebook_name }}"
+        command: >-
+          sh -c 'cd "/opt/app-root/src/Python-Artificial-Intelligence-Projects-for-Beginners" &&
+          jupyter nbconvert --to notebook --execute "Student performance.ipynb"
+          --output "Student performance-output.ipynb" --ExecutePreprocessor.timeout=120 &&
+          echo NOTEBOOK_EXECUTED'
+      register: r_notebook_exec
+      when: notebook_pod is defined
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 10. Report solve status
+    # ------------------------------------------------------------------
+    - name: Report solve status
+      ansible.builtin.debug:
+        msg: |
+          Notebook CR exists:    {{ 'ok' if r_notebook_check.resources | default([]) | length > 0 or r_notebook_check is not failed else 'NOT ok' }}
+          Notebook pod Running:  {{ 'ok' if notebook_pod is defined else 'NOT ok' }}
+          Git repo cloned:       {{ 'ok' if (r_git_clone.stdout is defined and 'CLONED' in r_git_clone.stdout) or (r_repo_check.stdout is defined and 'EXISTS' in r_repo_check.stdout) else 'NOT ok' }}
+          Notebook executed:     {{ 'ok' if r_notebook_exec.stdout is defined and 'NOTEBOOK_EXECUTED' in r_notebook_exec.stdout else 'NOT ok (check output above)' }}

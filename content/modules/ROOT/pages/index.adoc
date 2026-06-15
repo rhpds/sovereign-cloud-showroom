@@ -2,24 +2,19 @@
 
 = {lab_name}
 
-[IMPORTANT]
-====
-Do the modules in order and follow the instructions carefully. And make sure to run all of the scripts on this page before proceeding to the next module.
-====
-
 [[introduction]]
 == Introduction
 
-Customers today want flexibility. They want to do more, with less, while accelerating AI adoption to stay ahead of the market. Geographic specific compliance standards, petabytes of data in restricted environments, and increasing provider costs are all pushing organizations to reevaluate their technology strategies. Customers are seeking Sovereign Cloud solutions to provide the flexibility necessary to be adaptive in the age of AI and geographic specific requirements.
+Organizations today want flexibility. They want to do more, with less, while accelerating AI adoption to stay ahead of the market. Organizations have geographic specific compliance standards, petabytes of data in restricted environments, and increasing provider costs are all pushing organizations to reevaluate their technology strategies. Organizations are seeking a "Sovereign Cloud" approach from their technology providers to provide the flexibility necessary to be adaptive in the age of AI and geographic specific requirements.
 
-Red Hat is perfectly positioned to take advantage of these customer needs. With Red Hat's existing hybrid cloud approach, setting up an automated sovereign cloud architecture is simple. Red Hat has the tools to manage data privacy and compliance concerns, bringing simplified management of OpenShift clusters, containers, virtual machines, and AI applications, while providing hardened authorization, authentication, data controls, encryption, vulnerability management, and more.
+*We at Red Hat are perfectly positioned to help organizations achieve these goals.* 
 
-In this lab, you will progress through a simplified migration process where you, the customer, will bring your workflows and applications to an on premise and cloud environment, bringing your platform, to your data, in a compliant, secure, and repeatable manner.
+Red Hat is THE Open Source and Linux company built on the principles of openness, collaboration, and innovation. Red Hat's existing hybrid cloud approach, was designed to help organizations manage data privacy and compliance concerns, bringing simplified management of OpenShift clusters, containers, virtual machines, and AI applications to an organization's data. The Hybrid cloud approach is built to enable organizations to deploy and manage their own sovereign cloud architectures, enabling application and data mobility and policy enforcement.
 
 [[what-youll-learn]]
 == What You'll Learn
 
-This lab demonstrates how Red Hat Solutions can empower enterprises to manage their own sovereign cloud architectures enabling application and data mobility and policy enforcement.
+In this lab, you will progress through a simplified migration process where you, the customer, will bring your workflows and applications to an on premise and cloud environment, bringing your platform, to your data, in a compliant, secure, and repeatable manner.
 
 Through hands-on activities, you will:
 
@@ -40,12 +35,14 @@ Before beginning this lab, you should have:
 [[lab-modules]]
 == Lab Modules
 
-This lab is organized into four modules:
+This lab is organized into five modules:
 
 * xref:module-01.adoc[Module 1: Operations and Security] - Multi-environment cluster and workload management
 * xref:module-02.adoc[Module 2: Assurance] - Cluster conformance, compliance, and security insights
 * xref:module-03.adoc[Module 3: Technology and Supply Chain] - Secure supply chain and SLSA framework
 * xref:module-04.adoc[Module 4: Data and AI] - Data pipelines and AI compute capabilities
+* xref:module-05.adoc[Module 5: Supplementary modules] - Optional extra hands-on material
+* xref:conclusion.adoc[Conclusion] - Summary, key takeaways, and next steps
 
 [[getting-started]]
 == Getting Started
@@ -56,68 +53,31 @@ The environment has also already been pre-configured for you with the following 
 
 * On the right there are five tabs:
 ** *OpenShift Console*: this is where you will spend the majority of the time configuring the various environments and applications
-** *Advanced Cluster Security*: the console for configuring security related items
+** *Advanced Cluster Security*: the console for OpenShiftsecurity related activities.
 ** *Quay*: the console for image registry and artifacts
 ** *OpenShift AI*: the console for building and training AI models via Jupyter notebooks and specialized accelerators
 ** *Terminal*: command line access to the OpenShift environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
 
-=== Verify contexts and clusters
-
-First, let's verify that the contexts and clusters are configured correctly.
-
-*Procedure*
-
-[start=1]
-. Switch to the *Bastion* tab, located on the right side of the screen.
-. Verify that both contexts appear:
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc config get-contexts
-----
-+
-.**OUTPUT**
-[source,sh]
-----
-[lab-user@bastion ~]$ oc config get-contexts
-CURRENT   NAME            CLUSTER         AUTHINFO              NAMESPACE
-          aws-us          aws-us          aws-us-admin
-*         local-cluster   local-cluster   local-cluster-admin
-----
-+
-Now you are able to switch between contexts as needed.
-
-. Make sure you are using the local cluster context before continuing.
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc config use-context local-cluster
-----
-+
-IMPORTANT: You will need to switch between contexts as needed throughout the lab. Please ensure you have access to both clusters before proceeding. Otherwise contact the instructor.
-
-=== Install insecure applications while you work on Module 1
+=== Install Insecure Applications While You Work on Module 1
 
 We are going to deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
-
-The setup script configures required bastion environment variables (including RHACS client settings) before running the rest of the install. This will also deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
 
 *Procedure*
 
 [start=1]
 . Copy and paste the following commands into the *Terminal tab* on the right side of the screen.
 +
+[source,sh,subs="attributes",role=execute]
+----
+cd ~ && git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab
+cd ~/svc-lab
+bash setup.sh
+----
+
 [IMPORTANT]
 ====
 The following command can run while you work on the first module. You do not have to wait for it to finish before starting module 1. 
 ====
-+
-[source,sh,subs="attributes",role=execute]
-----
-cd ~ && git clone https://github.com/mfosterrox/summit-2026-lb1161-sovereign-cloud.git svc-lab
-cd ~/svc-lab
-bash setup.sh
-----
 
 === OpenShift Console Access (and RHACM Console Access)
 
@@ -174,6 +134,6 @@ Administrator login credentials:
 [[whats-next]]
 == What's Next
 
-Click on any module above to begin. We recommend starting with Module 1 and proceeding sequentially, as each module builds upon concepts from previous modules.
+image::https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWtnYWVvd3NmdHB6NXhkZjE1N3BzdGpyZG5vajIzeTY2NDE5a2J6NiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3og0ICZh82LEsNjHoc/giphy.gif[Celebration, width=400, align="center", link=self, window=blank]
 
-*Customer Value:* Upon completing this lab, you will be equipped to propose and implement sovereign cloud solutions that enable organizations to pursue digital transformation while meeting strict regulatory requirements—turning compliance from a barrier into a competitive advantage.
+Proceed to Module 1 and move through the modules in order. Good luck!

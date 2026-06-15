@@ -1,4 +1,4 @@
-[technology-supply-chain]]
+[[technology-supply-chain]]
 
 = Technology and Supply Chain
 
@@ -6,12 +6,11 @@
 
 == Module Goals
 
-*Own your software supply chain. *
+*Own your software supply chain.*
 
-The goal of this module is to show you how to ingest, build, sign, attest and secure your software supply chain. You'll learn how to take control of your software supply chain in sovereign cloud environments by working hands-on with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain full sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
+Ingest, build, sign, attest and secure your software supply chain. Take control by working hands-on with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
 
 [[setup]]
-
 == Installation and Setup
 
 First, we need to set up the applications for this module.
@@ -73,6 +72,7 @@ We'll be building a python based application to demonstrate the signing and veri
 +
 [source,sh,subs="attributes",role=execute]
 ----
+source ~/.bashrc
 podman pull registry.access.redhat.com/ubi8/python-312:1-1775513555
 podman tag registry.access.redhat.com/ubi8/python-312:1-1775513555 $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden
 podman push --remove-signatures $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden
@@ -117,7 +117,7 @@ podman push $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
 
 == Signing Your Software
 
-For signing and verification of container images, we'll be using the `cosign` CLI binary, which has already been installed int he terminal tab on the right.
+For signing and verification of container images, we'll be using the `cosign` CLI binary, which has already been installed in the terminal tab on the right.
 
 `cosign` can easily be used in any CI/CD toolchain as we use it here and handles all the communication with the Sigstore / Trusted Artifact Signer services that request certificates, handle the OIDC authentication, store info in the transparency log (Rekor), etc.
 
@@ -154,7 +154,25 @@ Platform:      linux/amd64
 [source,sh,subs="attributes",role=execute]
 ----
 export TUF_URL=$(oc get tuf -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
-export OIDC_ISSUER_URL=https://$(oc get route keycloak -n rhsso | tail -n 1 | awk '{print $2}')/auth/realms/openshift
+# Issuer must match Fulcio's configured OIDC issuer (path may be /realms/... or /auth/realms/...).
+export OIDC_ISSUER_URL=$(oc get fulcio -n trusted-artifact-signer -o jsonpath='{.items[0].spec.config.oidcIssuers[0].issuer}' 2>/dev/null)
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  export OIDC_ISSUER_URL=$(oc get fulcio -n trusted-artifact-signer -o jsonpath='{.items[0].spec.config.OIDCIssuers[0].Issuer}' 2>/dev/null)
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  export OIDC_ISSUER_URL=$(oc get securesign -n trusted-artifact-signer -o jsonpath='{.items[0].spec.fulcio.config.oidcIssuers[0].issuer}' 2>/dev/null)
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  export OIDC_ISSUER_URL=$(oc get securesign -n trusted-artifact-signer -o jsonpath='{.items[0].spec.fulcio.config.OIDCIssuers[0].Issuer}' 2>/dev/null)
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  KK_HOST=$(oc get route keycloak -n keycloak -o jsonpath='{.spec.host}' 2>/dev/null)
+  if [ -n "$KK_HOST" ]; then export OIDC_ISSUER_URL="https://${KK_HOST}/realms/openshift"; fi
+fi
+if [ -z "$OIDC_ISSUER_URL" ]; then
+  KK_HOST=$(oc get route keycloak -n rhsso -o jsonpath='{.spec.host}' 2>/dev/null)
+  if [ -n "$KK_HOST" ]; then export OIDC_ISSUER_URL="https://${KK_HOST}/auth/realms/openshift"; fi
+fi
 export COSIGN_FULCIO_URL=$(oc get fulcio -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
 export COSIGN_REKOR_URL=$(oc get rekor -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
 export COSIGN_MIRROR=$TUF_URL
@@ -167,7 +185,7 @@ export SIGSTORE_FULCIO_URL=$COSIGN_FULCIO_URL
 export SIGSTORE_OIDC_ISSUER=$COSIGN_OIDC_ISSUER
 export SIGSTORE_REKOR_URL=$COSIGN_REKOR_URL
 export REKOR_REKOR_SERVER=$COSIGN_REKOR_URL
-# to verify URL endpoints have been set
+echo "$OIDC_ISSUER_URL"
 env | grep URL
 ----
 +
@@ -220,7 +238,7 @@ Root status:
 }
 ----
 
-In sovereign cloud environments, cryptographic signing ensures that only approved, verified container images can be deployed to your infrastructure. This maintains control over your software supply chain and enables compliance with regulatory requirements for software provenance and integrity.
+Cryptographic signing lets you control which container images can run in your environment, making sure only trusted, verified images are used.
 
 `cosign` will be interacting with the image in our private registry, therefore we need to log in to Quay.
 
@@ -281,17 +299,11 @@ By typing 'y', you attest that you grant (or have permission to grant) and agree
 error opening browser: exec: "xdg-open": executable file not found in $PATH
 Go to the following link in a browser:
 
-         https://keycloak-rhsso.apps.cluster-l2ktc.l2ktc.sandbox75.opentlc.com/auth/realms/openshift/protocol/openid-connect/auth?access_type=online&client_id=trusted-artifact-signer&code_challenge=JHFlN4cLdRCGJWjkGf1S1nKYO9Nc-bnC6bhwkZXoS3M&code_challenge_method=S256&nonce=2qDckQCVBACjnviJ8bdxIWwPh1r&redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob&response_type=code&scope=openid+email&state=2qDckRnXkzmspwUHxF3f6K3NX67
+         https://sso.apps.<your-cluster>.<domain>/realms/openshift/protocol/openid-connect/auth?access_type=online&client_id=trusted-artifact-signer&code_challenge=...
 Enter verification code:
 ----
 +
-NOTE: As mentioned above, the signing process ties an identity (an OIDC identity, to be specific) to the signature. The signing certificate is issued on demand, but *only issued if an OIDC identity proof can be established*.
-+
-In this example, the "OAuth2 browser-based flow" is used. In other words, you will authenticate to the OIDC system by user and password via a browser login.
-+
-TIP: As an alternative to the browser flow, you can use direct access grants (password grant) to get an OIDC token first, then pass it to cosign with `--identity-token=$OIDC_TOKEN`. See the example later in this module for details.
-
-. Copy the URL and paste it in a new browser window or tab and log in—use one of the following user credentials:
+. Copy the URL and paste it in a new browser window or tab and log in. Use the following user credentials:
 +
 [cols="2,2"]
 |===
@@ -299,17 +311,17 @@ TIP: As an alternative to the browser flow, you can use direct access grants (pa
 | *Password:* | *secure*
 |===
 +
-NOTE: You can use any of the created users (jdoe, user1, or admin) to sign images. The username can be entered as the username (e.g., `user1`) or email address (e.g., `user1@demo.redhat.com`).
+NOTE: As mentioned above, the signing process ties an identity (an OIDC identity, to be specific) to the signature. The signing certificate is issued on demand, but *only issued if an OIDC identity proof can be established*.
 +
-image::11-signing-sso-login.png[keycloak login]
+image::11-signing-sso-login.png[Keycloak SSO login page, link=self, window=blank]
 +
-image::11-signing-successcode.png[copy the success code]
+image::11-signing-successcode.png[Copy the verification success code, link=self, window=blank]
 +
-IMPORTANT: Make sure to copy the whole code, as it is longer than the text box.
+TIP: Make sure to copy the whole code, as it is longer than the text box.
 +
 NOTE: You may have to run `rm -rf ~/.sigstore` if you get a cache error.
 
-. Enter verification code:
+. Copy the verification code and paste it in the terminal:
 +
 [.console-output]
 [source,bash,subs="+macros,+attributes"]
@@ -329,7 +341,7 @@ Pushing signature to: quay-l2ktc.apps.cluster-l2ktc.l2ktc.sandbox75.opentlc.com/
 +
 *SUCCESS!*
 +
-With one command, you have signed the container image and pushed the container image to the registry. Furthermore, the signing event and its metadata have been recorded in the *Rekor* transparency log: `tlog entry created with index: 1`.
+With one command, you have signed the container image in the quay registry. Furthermore, the signing event and its metadata have been recorded in the *Rekor* transparency log: `tlog entry created with index: 1`.
 
 . To check, we can again use `cosign tree`. Run the following command in the terminal:
 +
@@ -346,59 +358,10 @@ cosign tree $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
    └── 🍒 sha256:c20e35a851fe1f348be662e94f3095edfe85955d1d7b9ee8de2afbfc3c94f7e2
 ----
 +
-> We can also log in to Quay[{quay_console_url}] using the Quay credentials:
+> We can also view the signature in the Quay console. Head over to the console with username `quayadmin` and password `{quay_admin_password}`. check out the patient-portal-frontend image and you will see the signature.
 +
-[cols="2,2"]
-|===
-| *Quay Console Username:* | {quay_admin_username}
-| *Quay Console Password:* | {quay_admin_password}
-|===
-+
-Quay recognizes the `cosign` image signature, too!
-+
-image::11-quay-signed-image.png[link=self, window=blank, width=100%]
-
-You might be wondering how a pipeline task authenticates itself, since it can't open a browser to log in. Trusted Artifact Signer / Sigstore (including the cosign tool) doesn't authenticate the user directly. Instead, it relies on the OIDC system to authenticate the request before issuing a signing certificate. This allows the full flexibility of OIDC systems for authentication.
-
-For example, GitHub Actions and GitLab CI/CD can pass the OIDC identity of the pipeline runner via OIDC tokens into the pipeline.
-
-In general, continuous integration (CI) systems focus on providing the identity of the build or deployment environment rather than the personal identity of the user who triggered it. This helps maintain least privilege and ensures reproducibility. However, depending on your CI setup and requirements, you can leverage the flexibility of OIDC to meet your specific needs.
-
-== Deploy Your Signed Image and Verify it
-
-.Procedure
-+
-. Create the target namespace (project) if it does not exist, then deploy the image from Quay.
-Use `--image=` so `oc` treats the reference as a registry image, not a local file or template.
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc new-project patient-portal-frontend 2>/dev/null || oc project patient-portal-frontend
-oc new-app --name patient-portal-frontend --image "$QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0" -n patient-portal-frontend
-----
-+
-If the cluster cannot pull from your Quay registry, create a pull secret in this namespace and link it to the `default` service account (same credentials you use for `podman login`).
-
-. Deploy the signed image to your cluster. Run the following command in the terminal:
-+
-[source,sh,subs="attributes",role=execute]
-----
-oc apply -f ~/demo-applications/manifests/patient-portal-frontend-signed.yaml -n patient-portal-frontend
-----
-
-. Verify the image has been deployed. Run the following command in the terminal:
-
-
-
-== Module Cleanup
-
-Once you're done with this module, please execute the following command to reset the content, variables, repositories, etc. for the next user:
-
-[source,sh,subs="attributes",role=execute]
-----
-curl -fsSL https://raw.githubusercontent.com/redhat-tssc-tmm/security-roadshow/main/cleanup_tssc-module.sh | bash -s {quay_admin_username} {quay_admin_password}
-----
+image::11-quay-signed-image.png[Quay console showing signed container image, link=self, window=blank, width=100%]
 
 *You're crushing it!*
 
-image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MzBvNTN6eWR3MHF0eWNoZTI0eTVvMmRrZTMzaW4xbGIwOXJhZTJwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kAUtsLfsEfqaJRwe80/giphy.gif[width=400, Celebration!]
+image::https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MzBvNTN6eWR3MHF0eWNoZTI0eTVvMmRrZTMzaW4xbGIwOXJhZTJwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kAUtsLfsEfqaJRwe80/giphy.gif[Celebration, width=400, link=self, window=blank]

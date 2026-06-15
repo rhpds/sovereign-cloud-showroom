@@ -12,6 +12,78 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KUBE_CONTEXT="${KUBE_CONTEXT:-local-cluster}"
 oc config use-context "$KUBE_CONTEXT" &>/dev/null || true
 
+# Resolve Keycloak namespace from workloads / CRs / operator CSV — not from OLM Subscription objects.
+discover_keycloak_namespace() {
+    local ns _csv_line _routes_out line _r_ns _r_name
+    if [ -n "${KEYCLOAK_NAMESPACE_OVERRIDE:-}" ] && oc get namespace "${KEYCLOAK_NAMESPACE_OVERRIDE}" >/dev/null 2>&1; then
+        echo "${KEYCLOAK_NAMESPACE_OVERRIDE}"
+        return 0
+    fi
+    if [ -n "${KEYCLOAK_NAMESPACE:-}" ] && oc get namespace "${KEYCLOAK_NAMESPACE}" >/dev/null 2>&1; then
+        echo "${KEYCLOAK_NAMESPACE}"
+        return 0
+    fi
+    ns=$(oc get keycloaks.k8s.keycloak.org -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    ns=$(oc get deployment -A -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    ns=$(oc get pods -A -l app.kubernetes.io/name=keycloak --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+    [ -n "$ns" ] && echo "$ns" && return 0
+    _csv_line=$(oc get csv -A --no-headers 2>/dev/null | grep -iE 'keycloak|rhbk' | head -1 || true)
+    if [ -n "$_csv_line" ]; then
+        ns=$(echo "$_csv_line" | awk '{print $1}')
+        [ -n "$ns" ] && echo "$ns" && return 0
+    fi
+    if oc get namespace rhsso >/dev/null 2>&1; then
+        echo "rhsso"
+        return 0
+    fi
+    if oc get namespace keycloak >/dev/null 2>&1; then
+        echo "keycloak"
+        return 0
+    fi
+    _routes_out=$(oc get routes -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        _r_ns="${line%% *}"
+        _r_name="${line#* }"
+        if [ "$_r_name" = "keycloak-rhsso" ] || [ "$_r_name" = "keycloak" ]; then
+            echo "$_r_ns"
+            return 0
+        fi
+    done <<< "$_routes_out"
+    return 1
+}
+
+# RHBK / Keycloak Quarkus: https://HOST/realms/REALM — legacy RH-SSO: https://HOST/auth/realms/REALM
+discover_keycloak_oidc_issuer_url() {
+    local host=$1
+    local realm=${2:-openshift}
+    local base="https://${host}"
+    local disco_mod="${base}/realms/${realm}/.well-known/openid-configuration"
+    local disco_legacy="${base}/auth/realms/${realm}/.well-known/openid-configuration"
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fsS --connect-timeout 5 --max-time 15 "$disco_mod" 2>/dev/null | grep -q '"issuer"'; then
+            echo "${base}/realms/${realm}"
+            return 0
+        fi
+        if curl -fsS --connect-timeout 5 --max-time 15 "$disco_legacy" 2>/dev/null | grep -q '"issuer"'; then
+            echo "${base}/auth/realms/${realm}"
+            return 0
+        fi
+    fi
+    if oc get keycloaks.k8s.keycloak.org -A --no-headers 2>/dev/null | grep -q .; then
+        echo "${base}/realms/${realm}"
+        return 0
+    fi
+    if oc get keycloak.k8s.keycloak.org -A --no-headers 2>/dev/null | grep -q .; then
+        echo "${base}/realms/${realm}"
+        return 0
+    fi
+    echo "${base}/auth/realms/${realm}"
+    return 0
+}
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -139,17 +211,11 @@ fi
 # Check if Keycloak is available (RH-SSO / rhsso, Red Hat build of Keycloak / keycloak, or override)
 log "Checking if Keycloak is available..."
 KEYCLOAK_NAMESPACE=""
-if [ -n "${KEYCLOAK_NAMESPACE_OVERRIDE:-}" ] && oc get namespace "$KEYCLOAK_NAMESPACE_OVERRIDE" >/dev/null 2>&1; then
-    KEYCLOAK_NAMESPACE="$KEYCLOAK_NAMESPACE_OVERRIDE"
-elif oc get namespace rhsso >/dev/null 2>&1; then
-    KEYCLOAK_NAMESPACE="rhsso"
-elif oc get namespace keycloak >/dev/null 2>&1; then
-    KEYCLOAK_NAMESPACE="keycloak"
-else
-    KEYCLOAK_NAMESPACE=$(oc get subscription.operators.coreos.com -A -o jsonpath='{range .items[?(@.metadata.name=="rhbk-operator")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -1)
+if ! KEYCLOAK_NAMESPACE=$(discover_keycloak_namespace); then
+    KEYCLOAK_NAMESPACE=""
 fi
 if [ -z "$KEYCLOAK_NAMESPACE" ]; then
-    error "Keycloak namespace not found (expected rhsso, keycloak, or rhbk-operator subscription). Install Keycloak or set KEYCLOAK_NAMESPACE_OVERRIDE."
+    error "Keycloak namespace not found (workloads, keycloaks.k8s.keycloak.org CR, operator CSV in openshift-operators, or namespaces rhsso/keycloak). Install Keycloak or set KEYCLOAK_NAMESPACE_OVERRIDE."
 fi
 
 KEYCLOAK_ROUTE=""
@@ -165,10 +231,14 @@ if [ -z "$KEYCLOAK_ROUTE" ]; then
 fi
 log "✓ Keycloak is available at: https://${KEYCLOAK_ROUTE}"
 
-# Get OIDC configuration
-OIDC_ISSUER_URL="https://${KEYCLOAK_ROUTE}/auth/realms/openshift"
+# Get OIDC configuration (issuer path differs: Quarkus /realms/ vs legacy /auth/realms/)
+if [ -n "${OIDC_ISSUER_URL:-}" ]; then
+    log "✓ Using OIDC_ISSUER_URL from environment: ${OIDC_ISSUER_URL}"
+else
+    OIDC_ISSUER_URL=$(discover_keycloak_oidc_issuer_url "$KEYCLOAK_ROUTE" openshift)
+    log "✓ OIDC Issuer URL (auto-detected): ${OIDC_ISSUER_URL}"
+fi
 OIDC_CLIENT_ID="trusted-artifact-signer"
-log "✓ OIDC Issuer URL: ${OIDC_ISSUER_URL}"
 log "✓ OIDC Client ID: ${OIDC_CLIENT_ID}"
 
 log "Prerequisites validated successfully"
@@ -411,14 +481,21 @@ if [ -n "$SECURESIGN_NAME" ]; then
     fi
     if [ -n "$SECURESIGN_CONDITIONS" ]; then
         log "  Conditions: ${SECURESIGN_CONDITIONS}"
-        # Check for error conditions
-        ERROR_CONDITIONS=$(oc get securesigns $SECURESIGN_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.conditions[?(@.status=="False")].type}' 2>/dev/null || echo "")
-        if [ -n "$ERROR_CONDITIONS" ]; then
-            warning "  Error conditions detected: ${ERROR_CONDITIONS}"
-            for cond in $ERROR_CONDITIONS; do
+        # *Available conditions use status=False while work is in progress (reason Creating, etc.) — not necessarily errors.
+        PENDING_CONDITIONS=$(oc get securesigns $SECURESIGN_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.conditions[?(@.status=="False")].type}' 2>/dev/null || echo "")
+        if [ -n "$PENDING_CONDITIONS" ]; then
+            info "  Securesign conditions still False (reconciling until True): ${PENDING_CONDITIONS}"
+            for cond in $PENDING_CONDITIONS; do
                 COND_MSG=$(oc get securesigns $SECURESIGN_NAME -n $RHTAS_NAMESPACE -o jsonpath="{.status.conditions[?(@.type==\"$cond\")].message}" 2>/dev/null || echo "")
                 COND_REASON=$(oc get securesigns $SECURESIGN_NAME -n $RHTAS_NAMESPACE -o jsonpath="{.status.conditions[?(@.type==\"$cond\")].reason}" 2>/dev/null || echo "")
-                warning "    $cond: ${COND_REASON:-Unknown} - ${COND_MSG:-No message}"
+                case "${COND_REASON:-}" in
+                    Creating|Progressing|Installing|"")
+                        info "    $cond: ${COND_REASON:-Unknown} - ${COND_MSG:-No message}"
+                        ;;
+                    *)
+                        warning "    $cond: ${COND_REASON} - ${COND_MSG:-No message}"
+                        ;;
+                esac
             done
         fi
     else
@@ -449,11 +526,17 @@ else
                 log "  ${cr_type^} ($cr_name): Phase=${cr_status:-Unknown}, Ready=${cr_ready:-Unknown}"
             fi
             
-            # Check for error conditions
             error_msg=$(oc get ${cr_type}s $cr_name -n $RHTAS_NAMESPACE -o jsonpath='{.status.conditions[?(@.status=="False")].message}' 2>/dev/null || echo "")
             error_reason=$(oc get ${cr_type}s $cr_name -n $RHTAS_NAMESPACE -o jsonpath='{.status.conditions[?(@.status=="False")].reason}' 2>/dev/null || echo "")
             if [ -n "$error_msg" ] || [ -n "$error_reason" ]; then
-                warning "    ${cr_type^} error: ${error_reason:-Unknown} - ${error_msg:-No message}"
+                case "${error_reason:-}" in
+                    Creating|Progressing|Installing|"")
+                        info "    ${cr_type^} (not ready yet): ${error_reason:-Unknown} - ${error_msg:-No message}"
+                        ;;
+                    *)
+                        warning "    ${cr_type^} error: ${error_reason} - ${error_msg:-No message}"
+                        ;;
+                esac
             fi
         fi
     done
