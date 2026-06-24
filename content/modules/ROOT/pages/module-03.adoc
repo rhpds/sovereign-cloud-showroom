@@ -20,6 +20,7 @@ First, we need to set up the applications for this module.
 +
 [source,sh,subs="attributes",role=execute]
 ----
+source ~/.bashrc
 cosign version
 podman login https://$QUAY_URL -u $QUAY_USER -p {quay_admin_password}
 ----
@@ -85,7 +86,7 @@ You now have a container image in the local Quay registry.
 == Rebuilding the Patient Portal Frontend
 
 .Procedure
-. Go to the `patient-portal-frontend` build directory (clone the repo first if you do not already have it under `~/demo-applications`):
+. Go to the `patient-portal-frontend` build directory in the Terminal tab on the right:
 +
 [source,sh,subs="attributes",role=execute]
 ----
