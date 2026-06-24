@@ -85,7 +85,7 @@ You now have a container image in the local Quay registry.
 == Rebuilding the Patient Portal Frontend
 
 .Procedure
-. Go to the `patient-portal-frontend` build directory (clone the repo first if you do not already have it under `~/demo-applications`):
+. Go to the `patient-portal-frontend` build directory in the Terminal tab on the right:
 +
 [source,sh,subs="attributes",role=execute]
 ----
