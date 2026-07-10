@@ -1,57 +1,126 @@
-=== Sovereign Cloud
+= Sovereign Cloud Architecture with OpenShift Platform Plus
 
-. Clone the repo and `cd` into it
-. Run ./utilities/lab-serve
-. Open http://localhost:8080 in your browser
-. Run ./utilities/lab-build to build your html
+Hands-on Showroom lab for **multi-cluster data residency and compliance management**. Learners build and operate a sovereign / hybrid OpenShift fleet: on-prem hub, US cloud region, and an EMEA hosted control plane, with policy, supply chain, and AI workloads kept under organizational control.
 
-Your lab should now update and on day 1 will look more or less like this:
+*Repository:* https://github.com/rhpds/sovereign-cloud-showroom
 
-image::.images/lab-image.png[Lab Image]
+== Lab Environment Topology
 
-Now you are ready to go!  You can start editing the files in the `content/modules/ROOT/pages/` directory.
+image::content/modules/ROOT/assets/images/lb1161-sovereign-cloud-topology.png[LB1161 Sovereign Cloud lab topology, width=100%]
 
-**Today** you have to run `./utilites/build` to rebuild your html but *very shortly* we will be adding live updating.
-I.E. on every save the lab will re-build in real time.
-In addition, many modern editors such as Visual Studio Code offer live Asciidoc Preview extensions.
+[cols="2,3,3", options="header"]
+|===
+| Cluster | Role | Notes
 
-=== Understanding the Basic Template Directory Structure
+| `local-cluster`
+| On-prem hub / sovereign control plane
+| RHACM, OpenShift GitOps, RHACS Central, Quay, RHTAS + Keycloak, Compliance Operator, OpenShift AI
+
+| `aws-us`
+| Managed OpenShift in AWS (US)
+| ACS secured cluster (sensor); GitOps placement target for `patient-portal`
+
+| `hcp-emea`
+| Learner-created Hosted Control Plane (EMEA framing)
+| Created in Module 1 via RHACM + OpenShift Virtualization
+|===
+
+*Learner access (Showroom tabs):* OpenShift Console · Advanced Cluster Security · Quay · OpenShift AI · Terminal
+
+== Modules
+
+* link:content/modules/ROOT/pages/index.adoc[Intro] — Sovereign Cloud Architecture overview and environment setup
+* link:content/modules/ROOT/pages/module-01.adoc[Module 1: Operations and Security] — Multi-environment clusters, VMs, and GitOps workloads
+* link:content/modules/ROOT/pages/module-02.adoc[Module 2: Assurance] — Compliance, RHACS insights, and runtime policy-as-code
+* link:content/modules/ROOT/pages/module-03.adoc[Module 3: Technology and Supply Chain] — Trusted Artifact Signer, signing, and verification
+* link:content/modules/ROOT/pages/module-04.adoc[Module 4: Data and AI] — OpenShift AI and bringing compute to the data
+* link:content/modules/ROOT/pages/conclusion.adoc[Conclusion] — Summary and next steps
+* link:content/modules/ROOT/pages/module-05.adoc[Module 5: Supplementary] — Optional geo policy exercises
+
+== Featured Technology
+
+* Red Hat OpenShift Container Platform
+* Red Hat Advanced Cluster Management (RHACM)
+* Red Hat Advanced Cluster Security (RHACS)
+* Red Hat OpenShift GitOps
+* Red Hat Quay
+* Red Hat Trusted Artifact Signer (RHTAS)
+* Red Hat OpenShift AI
+* OpenShift Virtualization (Hosted Control Planes)
+
+== Local Development
+
+Prerequisites: Node.js (`npx`), Podman (for local HTTP serve).
+
+. Clone and enter the repo
++
+[source,sh]
+----
+git clone https://github.com/rhpds/sovereign-cloud-showroom.git
+cd sovereign-cloud-showroom
+----
+
+. Build the Antora site
++
+[source,sh]
+----
+make build
+----
+
+. Serve locally (http://localhost:8080/index.html)
++
+[source,sh]
+----
+make serve
+----
+
+. Stop the local server when finished
++
+[source,sh]
+----
+make stop
+----
+
+Other targets: `make clean`, `make reset` (clean + build + serve), `make help`.
+
+Edit content under `content/modules/ROOT/pages/`, then re-run `make build` (or `make reset`) to refresh.
+
+== Repository Layout
+
+[source,text]
+----
+.
+├── content/
+│   ├── antora.yml                 # Lab title and AsciiDoc attributes
+│   └── modules/ROOT/
+│       ├── nav.adoc               # Showroom navigation
+│       ├── pages/                 # Lab modules (index, 01–05, conclusion)
+│       └── assets/images/         # Screenshots and diagrams
+├── lab-setup/                     # ACS, observability, pipelines bootstrap
+├── tssc-setup/                    # Trusted Artifact Signer / Keycloak
+├── ai-setup/                      # OpenShift AI verification helpers
+├── runtime-automation/            # Module solve / validate playbooks
+├── setup.sh                       # Learner bootstrap (run from Terminal tab)
+├── site.yml                       # Antora site config
+├── ui-config.yml                  # Showroom tabs (consoles + Terminal)
+└── Makefile                       # build / serve / stop / reset
+----
+
+== In-Lab Bootstrap
+
+From the Showroom *Terminal* tab (after the environment is provisioned):
 
 [source,sh]
 ----
-./content/modules/ROOT/
-├── assets
-│   └── images                       # Images used in your content 
-│       └── example-image.png
-├── examples                         # You can add downloadable assets here 
-│   └── example-bash-script.sh       # e.g. an example bash script
-├── nav.adoc                         # Navigation for your lab
-├── pages                            # Your content goes here
-│   ├── index.adoc                   # First page of your lab, e.g. overview etc 
-│   ├── module-02.adoc
-│   └── module-03.adoc               # Sample lab has 3 modules including index.adoc
-└── partials                         # You can add partials here, reusable content inserted inline into your modules
-    └── example_partial.adoc
+cd ~ && git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab
+cd ~/svc-lab
+bash setup.sh
 ----
 
-=== Development Cycle
+The setup script can run while learners start Module 1.
 
-. Edit your content in `content/modules/ROOT/pages/`
-. Run `./utilities/build` to build your html
-. Use `git` to branch and commit your work
-. Push your work to your repo
-.. You should use `git tags` or `git branches` in production
-.. However development items default to the head of `main`
+== Support
 
-=== Configuring your Lab 
+For content questions, contact the lab authors via your Summit / RHDP channels.
 
-Project Zero Lab repos have 3 *yaml* files that control the build and deployment of your lab.
-However _typically_ you will only need to only make very few edits 
-
-[source,sh]
-----
-├── content
-│   └── antora.yml                  # You can add "inline vars" here to render within your content
-├── zero-touch-config.yml            # 
-└── zero-touch-site.yml
-----
+For RHDP provisioning or environment issues, open an https://red.ht/rhdp-ticket[RHDP support ticket] or use `#forum-demo-redhat-com`.
