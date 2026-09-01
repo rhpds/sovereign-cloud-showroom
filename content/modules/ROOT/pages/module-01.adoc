@@ -264,7 +264,7 @@ image::03-app-gitops-2.png[link=self, window=blank, width=100%, App ACM GitOps]
 . Under *Label expressions* click *Add label expression* and select the following
 * *Label:* name
 * *Operator:* equals any of
-* *Values:* aws-us, local-cluster, emea-cluster
+* *Values:* aws-us, local-cluster, hcp-emea
 . Uncheck the *Set a limit on the number of clusters selected*.
 +
 [IMPORTANT]
