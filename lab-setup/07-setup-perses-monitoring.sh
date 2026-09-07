@@ -934,3 +934,12 @@ echo ""
 echo "Test: cd $SCRIPT_DIR && curl --cert client.crt --key client.key -k \"$ROX_CENTRAL_ADDRESS/metrics\""
 echo ""
 rm -f "$SCRIPT_DIR/.env.certs"
+
+# Central restarts above; reinstall the ACS console plugin so Sensor proxy serves a valid manifest.
+echo ""
+log "Reinstalling RHACS OpenShift Console plugin after Central/monitoring changes..."
+if [ -f "$SCRIPT_DIR/rhacs-console-plugin.sh" ]; then
+  bash "$SCRIPT_DIR/rhacs-console-plugin.sh"
+else
+  warn "rhacs-console-plugin.sh not found; skip console plugin reinstall"
+fi
