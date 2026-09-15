@@ -32,6 +32,6 @@
 * xref:conclusion.adoc[Conclusion]
 
 * xref:module-05.adoc[Supplementary modules (optional)]
-** xref:module-05.adoc#deploying-more-policies-to-the-emea-cluster[Deploying MORE Policies to the EMEA Cluster]
+** xref:module-05.adoc#deploying-more-policies-to-hcp-emea[Deploying MORE Policies to the EMEA Cluster]
 ** xref:module-05.adoc#deploying-policies-to-the-us-cluster[Deploying Policies to the US Cluster]
 ** xref:module-05.adoc#organize-policies-by-geo[Organizing Policies by Geography]

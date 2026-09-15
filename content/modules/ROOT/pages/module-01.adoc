@@ -264,7 +264,7 @@ image::03-app-gitops-2.png[link=self, window=blank, width=100%, App ACM GitOps]
 . Under *Label expressions* click *Add label expression* and select the following
 * *Label:* name
 * *Operator:* equals any of
-* *Values:* aws-us, local-cluster, emea-cluster
+* *Values:* aws-us, local-cluster, hcp-emea
 . Uncheck the *Set a limit on the number of clusters selected*.
 +
 [IMPORTANT]
@@ -441,7 +441,7 @@ image::02-rhacm-yaml-5.png[Cluster violations resolved showing green status, lin
 By creating and informing on the policies you have now ensured that the EMEA cluster is in compliance with the GDPR requirements. All new clusters with the same label will be in compliance with the GDPR requirements.
 ====
 
-If you want to deploy more policies to the EMEA cluster, you can do so by following the steps in xref:module-05.adoc#deploying-more-policies-to-the-emea-cluster[Deploying MORE Policies to the EMEA Cluster].
+If you want to deploy more policies to the EMEA cluster, you can do so by following the steps in xref:module-05.adoc#deploying-more-policies-to-hcp-emea[Deploying MORE Policies to the EMEA Cluster].
 
 === Operations and Security Takeaways
 

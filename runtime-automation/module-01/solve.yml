@@ -330,20 +330,10 @@
       ignore_errors: true
 
     # -----------------------------------------------------------------------
-    # 7. Create Placement for ApplicationSet (cluster names: aws-us, local-cluster, emea-cluster)
+    # 7. Create Placement for ApplicationSet (cluster names: aws-us, local-cluster, hcp-emea)
+    # Always apply so an existing Placement with the wrong cluster name is corrected on re-run.
     # -----------------------------------------------------------------------
-    - name: Check if ApplicationSet Placement already exists
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
-        validate_certs: false
-        api_version: cluster.open-cluster-management.io/v1beta1
-        kind: Placement
-        name: "placement-{{ appset_name }}"
-        namespace: "{{ gitops_namespace }}"
-      register: r_appset_placement
-      ignore_errors: true
-
-    - name: Create Placement for skupper-patient-demo ApplicationSet
+    - name: Apply Placement for skupper-patient-demo ApplicationSet
       kubernetes.core.k8s:
         kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
         validate_certs: false
@@ -366,8 +356,7 @@
                         values:
                           - aws-us
                           - local-cluster
-                          - emea-cluster
-      when: r_appset_placement.resources | default([]) | length == 0
+                          - "{{ hcp_cluster_name }}"
       ignore_errors: true
 
     # -----------------------------------------------------------------------
