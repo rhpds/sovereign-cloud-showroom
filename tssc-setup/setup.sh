@@ -308,7 +308,8 @@ log ""
 if [ "$SKIP_DEPLOY" = false ]; then
     log "Cosign / sigstore environment (TUF, Fulcio, Rekor, OIDC):"
     log "  source ${SCRIPT_DIR}/cosign-env.sh"
-    log "  cosign initialize"
+    log "  export ROOT_CHECKSUM=\$(curl -fsSL \"\$TUF_URL/root.json\" | sha256sum | awk '{print \$1}')"
+    log "  cosign initialize --mirror \"\$TUF_URL\" --root \"\$TUF_URL/root.json\" --root-checksum \"\$ROOT_CHECKSUM\""
 else
     warning "Deploy was skipped; cosign-env.sh was not updated. Run ${DEPLOY_SCRIPT} or full setup to generate it."
 fi

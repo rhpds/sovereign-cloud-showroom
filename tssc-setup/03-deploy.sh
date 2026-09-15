@@ -841,7 +841,9 @@ if [ -n "$SECURESIGN_NAME" ]; then
 fi
 log ""
 if [[ -n "${TUF_URL:-}" && -n "${FULCIO_URL:-}" && -n "${REKOR_URL:-}" ]]; then
-    log "Cosign / sigstore: source ${COSIGN_ENV_FILE} then run cosign initialize"
+    log "Cosign / sigstore: source ${COSIGN_ENV_FILE}, then:"
+    log "  ROOT_CHECKSUM=\$(curl -fsSL \"\$TUF_URL/root.json\" | sha256sum | awk '{print \$1}')"
+    log "  cosign initialize --mirror \"\$TUF_URL\" --root \"\$TUF_URL/root.json\" --root-checksum \"\$ROOT_CHECKSUM\""
 else
     log "When URLs are available, re-run this script to generate ${COSIGN_ENV_FILE}"
 fi

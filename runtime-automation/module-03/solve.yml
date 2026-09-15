@@ -389,7 +389,9 @@
             echo "=== TAS endpoint URLs ==="
             env | grep URL || true
             echo "=== cosign initialize ==="
-            cosign initialize
+            export ROOT_CHECKSUM=$(curl -fsSL "${TUF_URL}/root.json" | sha256sum | awk '{print $1}')
+            echo "ROOT_CHECKSUM=${ROOT_CHECKSUM}"
+            cosign initialize --mirror "${TUF_URL}" --root "${TUF_URL}/root.json" --root-checksum "${ROOT_CHECKSUM}"
             echo "=== cosign login to Quay ==="
             cosign login {{ quay_url }} -u {{ quay_user }} -p {{ quay_password }}
             echo "=== cosign tree (pre-sign state) ==="

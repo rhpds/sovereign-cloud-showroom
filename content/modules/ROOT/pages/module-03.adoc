@@ -93,12 +93,15 @@ You now have a container image in the local Quay registry.
 cd ~/demo-applications/image-builds/patient-portal-frontend
 ----
 
-. Replace both `FROM` lines so the build uses your Quay golden image instead of Docker Hub:
+. Replace both `FROM` lines so the build uses your Quay golden image instead of Docker Hub. The upstream Dockerfile currently uses `python:3.14-slim`; this substitution matches any `python:` tag so it still works if that version moves:
 +
 [source,sh,subs="attributes",role=execute]
 ----
-sed -i "s|^FROM docker.io/library/python:3.12-slim|FROM $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden|g" Dockerfile
+sed -i "s|^FROM docker.io/library/python:[^[:space:]]*|FROM $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden|g" Dockerfile
+grep '^FROM' Dockerfile
 ----
++
+Both stages must show your Quay golden image. If either line still says `docker.io/library/python`, the next build pulls from Docker Hub and skips the golden image you just pushed.
 
 . Build the frontend container image:
 +
@@ -190,17 +193,22 @@ echo "$OIDC_ISSUER_URL"
 env | grep URL
 ----
 +
-. As the last step, initialize `cosign` so it knows who to talk to. Run the following command in the terminal
+. As the last step, initialize `cosign` against your in-cluster TUF root. Cosign requires a checksum when that initial `root.json` is fetched over HTTPS, so you pin the file before trusting the URL:
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cosign initialize
+export ROOT_CHECKSUM=$(curl -fsSL "$TUF_URL/root.json" | sha256sum | awk '{print $1}')
+echo "$ROOT_CHECKSUM"
+cosign initialize --mirror "$TUF_URL" --root "$TUF_URL/root.json" --root-checksum "$ROOT_CHECKSUM"
 ----
 +
 [.console-output]
 [source,bash,subs="+macros,+attributes"]
 ----
-[lab-user@bastion ~]$ cosign initialize
+[lab-user@bastion ~]$ export ROOT_CHECKSUM=$(curl -fsSL "$TUF_URL/root.json" | sha256sum | awk '{print $1}')
+[lab-user@bastion ~]$ echo "$ROOT_CHECKSUM"
+a1b2c3d4e5f6...
+[lab-user@bastion ~]$ cosign initialize --mirror "$TUF_URL" --root "$TUF_URL/root.json" --root-checksum "$ROOT_CHECKSUM"
 Root status: 
  {
         "local": "/home/lab-user/.sigstore/root",
