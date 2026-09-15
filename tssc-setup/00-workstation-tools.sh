@@ -19,7 +19,9 @@ error() { echo -e "${RED}[TSSC-TOOLS] ERROR:${NC} $1" >&2; exit 1; }
 
 COSIGN_GITSIGN_INSTALLER_URL="${COSIGN_GITSIGN_INSTALLER_URL:-https://raw.githubusercontent.com/redhat-tssc-tmm/security-roadshow/main/cosign_gitsign_installer.sh}"
 # Fallback when Route is missing or upstream installer fails (override for air-gapped mirrors)
-COSIGN_VERSION="${COSIGN_VERSION:-v2.4.1}"
+# v2.4.2+ is required for `cosign initialize --root-checksum` (TAS / module-03).
+# Stay on last v2 so tag-based `cosign sign` in the lab still works.
+COSIGN_VERSION="${COSIGN_VERSION:-v2.6.5}"
 GITSIGN_VERSION="${GITSIGN_VERSION:-v0.14.0}"
 
 rhtas_client_server_route_ready() {
@@ -90,6 +92,8 @@ cosign_and_gitsign_on_path_ok() {
     command -v cosign &>/dev/null || return 1
     command -v gitsign &>/dev/null || return 1
     cosign version &>/dev/null || return 1
+    # Reinstall GitHub fallback / RHTAS CLI if this binary cannot pin TUF root.json.
+    cosign initialize --help 2>&1 | grep -q -- '--root-checksum' || return 1
     return 0
 }
 
@@ -107,6 +111,11 @@ if rhtas_client_server_route_ready; then
     fi
 else
     warning "No client-server Route in trusted-artifact-signer (or oc not logged in). Installing cosign/gitsign from GitHub releases..."
+    install_cosign_gitsign_github
+fi
+# GitHub v2.4.1 and some cluster CLIs lack --root-checksum; replace them so module-03 initialize works.
+if ! cosign_and_gitsign_on_path_ok; then
+    warning "Installed cosign does not support --root-checksum; installing ${COSIGN_VERSION} from GitHub..."
     install_cosign_gitsign_github
 fi
 fi

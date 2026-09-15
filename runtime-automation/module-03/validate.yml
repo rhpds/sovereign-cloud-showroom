@@ -313,7 +313,7 @@
           {{ 'Task 4: Dockerfile FROM line updated to golden image' if _task4_ok
              else 'Task 4: Dockerfile still references original base image — update the FROM line to point to python-ubi-312:3.12-golden in Quay' }}
           {{ 'Task 5: cosign TUF initialized (~/.sigstore exists)' if _task5_ok
-             else 'Task 5: ~/.sigstore not found — run cosign initialize with the correct TUF_URL set' }}
+             else 'Task 5: ~/.sigstore not found — compute ROOT_CHECKSUM from $TUF_URL/root.json and run cosign initialize --mirror --root --root-checksum' }}
           {{ 'Task 6: TUF, Fulcio, and Rekor CRs all have status URLs' if _task6_ok
              else 'Task 6: One or more TAS CRs missing status URL — check trusted-artifact-signer namespace for TUF/Fulcio/Rekor operator status' }}
           {{ 'Task 7: Keycloak route is reachable' if _task7_ok

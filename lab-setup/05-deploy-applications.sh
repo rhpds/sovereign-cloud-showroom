@@ -72,6 +72,32 @@ echo "export TUTORIAL_HOME=\"$TUTORIAL_HOME\"" >> ~/.bashrc
 export TUTORIAL_HOME="$TUTORIAL_HOME"
 log "✓ TUTORIAL_HOME=$TUTORIAL_HOME"
 
+# Apply demo-applications manifests, excluding emojivoto (not used in this lab).
+# Also skips stray "* copy.yaml" files that accidentally create the emojivoto namespace.
+apply_demo_manifests() {
+    local CLUSTER_CONTEXT="$1"
+    local manifest_root="$TUTORIAL_HOME/k8s-deployment-manifests"
+    local -a apply_args=()
+    local f
+
+    log "Applying k8s-deployment-manifests (excluding emojivoto)..."
+    while IFS= read -r f; do
+        apply_args+=(-f "$f")
+    done < <(find "$manifest_root" \( -name '*.yaml' -o -name '*.yml' \) -type f \
+        ! -path '*/emojivoto/*' \
+        ! -name '*emojivoto*' \
+        ! -name '* copy.yaml' \
+        ! -name '* copy.yml' \
+        | sort)
+
+    if [ "${#apply_args[@]}" -eq 0 ]; then
+        warning "No manifests to apply under $manifest_root"
+        return 1
+    fi
+
+    oc --context="$CLUSTER_CONTEXT" apply "${apply_args[@]}"
+}
+
 # Deploy to one cluster using explicit --context (safe for parallel execution)
 deploy_to_cluster() {
     local CLUSTER_NAME="$1"
@@ -94,13 +120,13 @@ deploy_to_cluster() {
     log "✓ Connected as: $(oc --context="$CLUSTER_CONTEXT" whoami)"
 
     if [ -d "$TUTORIAL_HOME/k8s-deployment-manifests" ]; then
-        log "Applying k8s-deployment-manifests (recursive)..."
-        if oc --context="$CLUSTER_CONTEXT" apply -f "$TUTORIAL_HOME/k8s-deployment-manifests/" --recursive; then
-            log "✓ Apply finished for $CLUSTER_NAME"
-        else
+        if ! apply_demo_manifests "$CLUSTER_CONTEXT"; then
             warning "Apply reported errors on $CLUSTER_NAME"
             return 1
         fi
+        log "✓ Apply finished for $CLUSTER_NAME"
+        # Drop emojivoto if a previous run (or recursive apply) created it.
+        oc --context="$CLUSTER_CONTEXT" delete namespace emojivoto --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
     else
         warning "k8s-deployment-manifests not found: $TUTORIAL_HOME/k8s-deployment-manifests"
         return 1
