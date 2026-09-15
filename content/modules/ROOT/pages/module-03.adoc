@@ -286,17 +286,38 @@ No Supply Chain Security Related Artifacts artifacts found for image quay.apps.c
 , start creating one with simply running$ cosign sign <img>
 ----
 
-. As `cosign` suggests, signing this image is as simple as the following. Run the following command in the terminal:
+. Resolve the *digest* of the image you just pushed. A tag such as `:1.0` is a pointer that can be moved to a different image later. A digest (`@sha256:...`) is the immutable checksum of that exact image:
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cosign sign $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
+IMAGE=$QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
+DIGEST=$(podman inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+echo "$DIGEST"
 ----
 +
 [.console-output]
 [source,bash,subs="+macros,+attributes"]
 ----
-[lab-user@bastion ~]$ cosign sign $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
+[lab-user@bastion ~]$ echo "$DIGEST"
+quay.apps.<your-cluster>.<domain>/quayadmin/patient-portal-frontend@sha256:...
+----
++
+[IMPORTANT]
+====
+*Sign the digest, not the tag.* If you sign `:1.0`, you attest to whichever image that tag happens to point at when Cosign resolves it. Someone can later retag a different (unsigned or malicious) image as `:1.0`, and consumers who pull by tag will no longer be looking at the bits you signed. Signing `@sha256:...` binds the signature to one immutable artifact. Cosign warns when you pass a tag, and a future release will refuse tags entirely.
+====
+
+. Sign that digest. After `cosign initialize`, newer Cosign loads Fulcio and Rekor from the TUF `signing_config`. This lab still sets those service URLs (and the Keycloak OIDC issuer) in the environment, which Cosign treats as a conflict unless you turn the signing config off. `--new-bundle-format=false` keeps the classic `.sig` tag that `cosign tree` shows next:
++
+[source,sh,subs="attributes",role=execute]
+----
+cosign sign --use-signing-config=false --new-bundle-format=false "$DIGEST"
+----
++
+[.console-output]
+[source,bash,subs="+macros,+attributes"]
+----
+[lab-user@bastion ~]$ cosign sign --use-signing-config=false --new-bundle-format=false "$DIGEST"
 Generating ephemeral keys...
 Retrieving signed certificate...
 
@@ -338,19 +359,13 @@ NOTE: You may have to run `rm -rf ~/.sigstore` if you get a cache error.
 Enter verification code: 3cc0c9fc-db2e-4920-ba2e-7adac8c685cb.6309e23d-facd-4bca-8855-0443a3c4ddf5.d8370879-39c7-41ec-99ab-669101e99f91
 
 Successfully verified SCT...
-WARNING: Image reference quay-l2ktc.apps.cluster-l2ktc.l2ktc.sandbox75.opentlc.com/quayadmin/patient-portal-frontend:1.0 uses a tag, not a digest, to identify the image to sign.
-    This can lead you to sign a different image than the intended one. Please use a
-    digest (example.com/ubuntu@sha256:abc123...) rather than tag
-    (example.com/ubuntu:latest) for the input to cosign. The ability to refer to
-    images by tag will be removed in a future release.
-
 tlog entry created with index: 1
-Pushing signature to: quay-l2ktc.apps.cluster-l2ktc.l2ktc.sandbox75.opentlc.com/quayadmin/patient-portal-frontend:1.0
+Pushing signature to: quay-l2ktc.apps.cluster-l2ktc.l2ktc.sandbox75.opentlc.com/quayadmin/patient-portal-frontend
 ----
 +
 *SUCCESS!*
 +
-With one command, you have signed the container image in the quay registry. Furthermore, the signing event and its metadata have been recorded in the *Rekor* transparency log: `tlog entry created with index: 1`.
+You have signed a specific image digest in the Quay registry, not a movable tag. The signing event and its metadata are recorded in the *Rekor* transparency log: `tlog entry created with index: 1`.
 
 . To check, we can again use `cosign tree`. Run the following command in the terminal:
 +
