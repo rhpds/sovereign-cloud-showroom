@@ -7,7 +7,7 @@
 This page is optional reference and extra hands-on material. For the main lab path, complete xref:index.adoc#lab-modules[Modules 1 through 4] in the order listed on the intro page; use Module 5 when you want additional exercises.
 ====
 
-[[deploying-more-policies-to-the-emea-cluster]]
+[[deploying-more-policies-to-hcp-emea]]
 == Deploying MORE Policies to the EMEA Cluster
 
 Let's apply another policy to the EMEA Cluster. This policy implements **network-level data sovereignty** by creating a NetworkPolicy in the `data-residency-emea` namespace that blocks all egress traffic to external IP addresses. Only cluster-internal communication (RFC 1918 addresses) and DNS resolution are permitted. This ensures that:
