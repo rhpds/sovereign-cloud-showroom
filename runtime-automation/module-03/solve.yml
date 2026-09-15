@@ -414,7 +414,8 @@
     # ------------------------------------------------------------------
     # block-13 SKIP — cosign sign requires interactive OIDC browser flow
     # ------------------------------------------------------------------
-    # SKIP: cosign sign $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
+    # SKIP: resolve RepoDigest then:
+    # cosign sign --use-signing-config=false --new-bundle-format=false "$DIGEST"
     # Not automatable: requires interactive OIDC browser authentication.
 
     # ------------------------------------------------------------------
@@ -435,6 +436,7 @@
           Frontend build    : {{ 'ok' if r_build_push.rc | default(1) == 0 else 'FAILED — check logs (build may take 10+ min)' }}
           cosign init       : {{ 'ok' if r_cosign_init is defined and r_cosign_init.rc | default(1) == 0 else 'skipped or FAILED (TUF URL needed)' }}
           cosign sign       : SKIPPED — requires manual OIDC authentication.
-                              Student must run: cosign sign $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
+                              Student must resolve the image digest, then run:
+                              cosign sign --use-signing-config=false --new-bundle-format=false "$DIGEST"
                               and complete the Keycloak browser login, then paste the verification code.
                               Come back and click Validate after the signing step is done.

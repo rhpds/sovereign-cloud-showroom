@@ -319,4 +319,4 @@
           {{ 'Task 7: Keycloak route is reachable' if _task7_ok
              else 'Task 7: Keycloak route unreachable — check the keycloak/rhsso namespace and verify the keycloak route exists' }}
           {{ 'Task 8: Signature artifacts present for patient-portal-frontend:1.0' if _task8_ok
-             else 'Task 8: No signature found — run: cosign sign $QUAY_URL/quayadmin/patient-portal-frontend:1.0 and complete the Keycloak browser login, then click Validate again' }}
+             else 'Task 8: No signature found — resolve the image digest with podman inspect, run: cosign sign --use-signing-config=false --new-bundle-format=false "$DIGEST" and complete the Keycloak browser login, then click Validate again' }}
