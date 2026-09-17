@@ -60,43 +60,89 @@ log "✓ Cluster admin privileges confirmed"
 log "Prerequisites validated successfully"
 log ""
 
-# True when CSV is Succeeded and the operator controller is actually running (not inferred from Subscription).
-rhsso_operator_ready_in_namespace() {
-    local ns=$1 csv_name phase podc
+# Operator controller Running is the install success signal. CSV listing can lag while
+# the redhat-operator-index catalog unpacks (often several minutes on first pull).
+rhsso_operator_pod_running() {
+    local ns=$1 podc
     [ -z "$ns" ] && return 1
     oc get namespace "$ns" >/dev/null 2>&1 || return 1
-    csv_name=$(oc get csv -n "$ns" -o name 2>/dev/null | grep rhsso-operator | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || true)
-    if [ -z "$csv_name" ]; then
-        csv_name=$(oc get csv -n "$ns" -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-    fi
-    [ -z "$csv_name" ] && return 1
-    phase=$(oc get csv "$csv_name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-    [ "$phase" = "Succeeded" ] || return 1
     podc=$(oc get pods -n "$ns" -l name=rhsso-operator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo 0)
     if [ "${podc:-0}" -ge 1 ]; then
         return 0
     fi
-    if oc get pods -n "$ns" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qi rhsso-operator; then
-        return 0
-    fi
-    return 1
+    oc get pods -n "$ns" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qi rhsso-operator
 }
 
-# Check if RHSSO Operator is already installed
-log "Checking if RHSSO Operator is already installed..."
+discover_rhsso_csv_name() {
+    local ns=$1 csv_name=""
+    csv_name=$(oc get csv -n "$ns" -o name 2>/dev/null | grep rhsso-operator | head -1 | sed 's|.*/||' || true)
+    if [ -z "$csv_name" ]; then
+        csv_name=$(oc get csv -n "$ns" -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    fi
+    if [ -z "$csv_name" ]; then
+        csv_name=$(oc get csv -n "$ns" --no-headers 2>/dev/null | awk 'BEGIN{IGNORECASE=1} /rhsso/ {print $1; exit}' || true)
+    fi
+    printf '%s' "$csv_name"
+}
+
+rhsso_operator_ready_in_namespace() {
+    rhsso_operator_pod_running "$1"
+}
+
+wait_for_catalogsource_ready() {
+    local name=$1 ns=$2
+    local max_wait=900 wait_count=0 status=""
+    log "Waiting for CatalogSource '$name' to become READY (index image pull can take several minutes)..."
+    while [ "$wait_count" -lt "$max_wait" ]; do
+        status=$(oc get catalogsource "$name" -n "$ns" -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
+        if [ "$status" = "READY" ]; then
+            log "✓ CatalogSource is READY"
+            return 0
+        fi
+        if [ $((wait_count % 30)) -eq 0 ]; then
+            log "  CatalogSource status: ${status:-unknown} (${wait_count}s/${max_wait}s)"
+            oc get pods -n "$ns" --no-headers 2>/dev/null | grep -i catalog | head -5 || true
+        fi
+        sleep 10
+        wait_count=$((wait_count + 10))
+    done
+    warning "CatalogSource not READY after ${max_wait}s (status: ${status:-unknown}); continuing to wait on the operator"
+    return 0
+}
+
+# Check if Keycloak / RHSSO is already available
+log "Checking if Keycloak is already installed..."
 NAMESPACE="rhsso"
 OPERATOR_INSTALLED=false
+KEYCLOAK_RHBK_RES="keycloaks.k8s.keycloak.org"
+KEYCLOAK_LEGACY_RES="keycloaks.keycloak.org"
 
-if oc get namespace $NAMESPACE >/dev/null 2>&1; then
+# Lab clusters often already have Red Hat build of Keycloak in namespace "keycloak".
+# Prefer that over pulling a namespaced redhat-operator-index just to install RH-SSO.
+if oc get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1; then
+    for kns in keycloak rhsso; do
+        oc get namespace "$kns" >/dev/null 2>&1 || continue
+        kcname=$(oc get "$KEYCLOAK_RHBK_RES" -n "$kns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        if [ -n "$kcname" ]; then
+            log "✓ Found existing Keycloak (k8s.keycloak.org) '$kcname' in namespace $kns"
+            log "Skipping RH-SSO operator installation; will use this instance."
+            OPERATOR_INSTALLED=true
+            NAMESPACE="$kns"
+            break
+        fi
+    done
+fi
+
+if [ "$OPERATOR_INSTALLED" = false ] && oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
     log "Namespace $NAMESPACE already exists"
     if rhsso_operator_ready_in_namespace "$NAMESPACE"; then
-        log "✓ RHSSO Operator is already installed and running (CSV Succeeded + operator pods)"
+        log "✓ RHSSO operator is already running in $NAMESPACE"
         OPERATOR_INSTALLED=true
         log "Skipping operator installation, but will proceed with Keycloak instance deployment..."
     else
-        log "RHSSO operator workload not fully ready in $NAMESPACE (CSV or operator pods); proceeding with installation steps..."
+        log "RHSSO operator not fully ready in $NAMESPACE; proceeding with installation steps..."
     fi
-else
+elif [ "$OPERATOR_INSTALLED" = false ]; then
     log "RHSSO Operator not found, proceeding with installation..."
 fi
 
@@ -135,31 +181,27 @@ EOF
     fi
     log "✓ OperatorGroup created successfully (targeting namespace: $NAMESPACE)"
 
-    # Step 3: Create or verify CatalogSource
+    # Step 3: Catalog — prefer the cluster marketplace; fall back to a namespaced 4.15 index
+    # because rhsso-operator is often absent from newer OpenShift catalogs.
     log ""
     log "Step 3: Creating/verifying CatalogSource..."
 
     CATALOG_SOURCE_NAME="rhsso-operator-catalogsource"
-    CATALOG_SOURCE_EXISTS=false
+    SUB_SOURCE="redhat-operators"
+    SUB_SOURCE_NS="openshift-marketplace"
 
-    if oc get catalogsource $CATALOG_SOURCE_NAME -n $NAMESPACE >/dev/null 2>&1; then
-        log "CatalogSource '$CATALOG_SOURCE_NAME' already exists"
-        CATALOG_SOURCE_EXISTS=true
-        
-        # Check if it's healthy
-        CATALOG_STATUS=$(oc get catalogsource $CATALOG_SOURCE_NAME -n $NAMESPACE -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
-        if [ "$CATALOG_STATUS" = "READY" ]; then
-            log "✓ CatalogSource is READY"
-        else
-            log "CatalogSource status: ${CATALOG_STATUS:-unknown}"
-        fi
+    if oc get packagemanifest rhsso-operator -n openshift-marketplace >/dev/null 2>&1; then
+        log "✓ Found rhsso-operator in openshift-marketplace (redhat-operators)"
     else
-        log "Creating CatalogSource '$CATALOG_SOURCE_NAME'..."
-        
-        # Create CatalogSource pointing to redhat-operators
-        # Note: This creates a custom catalog source that mirrors redhat-operators
-        # If you have a specific catalog image, replace the image reference below
-        if ! cat <<EOF | oc apply -f -
+        log "rhsso-operator is not in the cluster catalog; using redhat-operator-index:v4.15"
+        SUB_SOURCE="$CATALOG_SOURCE_NAME"
+        SUB_SOURCE_NS="$NAMESPACE"
+
+        if oc get catalogsource "$CATALOG_SOURCE_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+            log "CatalogSource '$CATALOG_SOURCE_NAME' already exists"
+        else
+            log "Creating CatalogSource '$CATALOG_SOURCE_NAME'..."
+            if ! cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
@@ -174,40 +216,20 @@ spec:
     registryPoll:
       interval: 30m
 EOF
-        then
-            error "Failed to create CatalogSource"
-        fi
-        log "✓ CatalogSource created"
-        
-        # Wait for catalog source to be ready
-        log "Waiting for CatalogSource to be ready..."
-        CATALOG_READY=false
-        for i in {1..30}; do
-            CATALOG_STATUS=$(oc get catalogsource $CATALOG_SOURCE_NAME -n $NAMESPACE -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
-            if [ "$CATALOG_STATUS" = "READY" ]; then
-                CATALOG_READY=true
-                log "✓ CatalogSource is READY"
-                break
-            else
-                if [ $((i % 5)) -eq 0 ]; then
-                    log "  CatalogSource status: ${CATALOG_STATUS:-unknown} (waiting for READY...)"
-                fi
+            then
+                error "Failed to create CatalogSource"
             fi
-            sleep 2
-        done
-        
-        if [ "$CATALOG_READY" = false ]; then
-            warning "CatalogSource may not be ready yet, but continuing..."
+            log "✓ CatalogSource created"
         fi
+        wait_for_catalogsource_ready "$CATALOG_SOURCE_NAME" "$NAMESPACE"
     fi
 
-    # Step 4: Create the Subscription
+    # Step 4: Create the Subscription (no startingCSV pin — OLM resolves the channel CSV)
     log ""
     log "Step 4: Creating Subscription..."
     log "  Channel: stable"
-    log "  Source: $CATALOG_SOURCE_NAME"
-    log "  SourceNamespace: $NAMESPACE"
-    log "  StartingCSV: rhsso-operator.7.6.11-opr-004"
+    log "  Source: $SUB_SOURCE"
+    log "  SourceNamespace: $SUB_SOURCE_NS"
 
     if ! cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
@@ -221,75 +243,63 @@ spec:
   channel: stable
   installPlanApproval: Automatic
   name: rhsso-operator
-  source: $CATALOG_SOURCE_NAME
-  sourceNamespace: $NAMESPACE
-  startingCSV: rhsso-operator.7.6.11-opr-004
+  source: $SUB_SOURCE
+  sourceNamespace: $SUB_SOURCE_NS
 EOF
     then
         error "Failed to create Subscription"
     fi
     log "✓ Subscription created successfully"
+    # A previous run may have pinned startingCSV; apply does not remove that field.
+    oc patch subscription rhsso-operator -n "$NAMESPACE" --type json \
+        -p '[{"op":"remove","path":"/spec/startingCSV"}]' 2>/dev/null || true
 
-    log "Verifying operator install progress (CSV + pods, not Subscription status)..."
+    log "Verifying operator install progress (CSV + pods)..."
     sleep 3
 
-    # Step 5: Wait for CSV to be created and installed
+    # Step 5: Wait for the operator pod (CSV name/version is not assumed)
     log ""
-    log "Step 5: Waiting for installation (60-120 seconds)..."
-    log "Watching install progress..."
+    log "Step 5: Waiting for RHSSO operator to come up..."
+    log "Catalog unpack and operator image pull can take several minutes."
     log ""
 
-    # Wait for CSV to be created
-    MAX_WAIT=120
+    MAX_WAIT=900
     WAIT_COUNT=0
-    CSV_CREATED=false
+    OPERATOR_READY=false
 
-    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-        if oc get csv -n $NAMESPACE 2>/dev/null | grep -q rhsso-operator; then
-            CSV_CREATED=true
-            log "✓ CSV created"
+    while [ "$WAIT_COUNT" -lt "$MAX_WAIT" ]; do
+        if rhsso_operator_pod_running "$NAMESPACE"; then
+            OPERATOR_READY=true
+            log "✓ RHSSO operator pod is Running"
             break
         fi
-        
-        # Show progress every 10 seconds
-        if [ $((WAIT_COUNT % 10)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+
+        if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ "$WAIT_COUNT" -gt 0 ]; then
             log "  Progress check (${WAIT_COUNT}s/${MAX_WAIT}s):"
-            oc get csv,installplan.operators.coreos.com -n $NAMESPACE 2>/dev/null | head -5 || true
-            oc get pods -n $NAMESPACE --no-headers 2>/dev/null | head -5 || true
+            oc get csv,installplan.operators.coreos.com -n "$NAMESPACE" 2>/dev/null | head -8 || true
+            oc get pods -n "$NAMESPACE" --no-headers 2>/dev/null | head -8 || true
             log ""
         fi
-        
-        sleep 1
-        WAIT_COUNT=$((WAIT_COUNT + 1))
+
+        sleep 10
+        WAIT_COUNT=$((WAIT_COUNT + 10))
     done
 
-    if [ "$CSV_CREATED" = false ]; then
-        warning "CSV not created after ${MAX_WAIT} seconds. Current status:"
-        oc get csv,installplan.operators.coreos.com -n $NAMESPACE
-        warning "CSV may still be installing. Check: oc get csv -n $NAMESPACE && oc get pods -n $NAMESPACE"
-    fi
+    CSV_NAME=$(discover_rhsso_csv_name "$NAMESPACE")
 
-    # Get the CSV name
-    CSV_NAME=$(oc get csv -n $NAMESPACE -o name 2>/dev/null | grep rhsso-operator | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || echo "")
-    if [ -z "$CSV_NAME" ]; then
-        CSV_NAME=$(oc get csv -n $NAMESPACE -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    fi
-    if [ -z "$CSV_NAME" ]; then
-        warning "Failed to find CSV name for rhsso-operator. It may still be installing."
-        CSV_NAME="rhsso-operator.7.6.11-opr-004"
-    fi
-
-    # Wait for CSV to be in Succeeded phase
-    if [ -n "$CSV_NAME" ]; then
+    if [ "$OPERATOR_READY" = false ] && [ -n "$CSV_NAME" ]; then
         log "Waiting for CSV '$CSV_NAME' to reach Succeeded phase..."
-        if ! oc wait --for=jsonpath='{.status.phase}'=Succeeded "csv/$CSV_NAME" -n $NAMESPACE --timeout=300s 2>/dev/null; then
-            CSV_STATUS=$(oc get csv "$CSV_NAME" -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
-            warning "CSV did not reach Succeeded phase within timeout. Current status: $CSV_STATUS"
-            log "Checking CSV details..."
-            oc get csv "$CSV_NAME" -n $NAMESPACE
-        else
+        if oc wait --for=jsonpath='{.status.phase}'=Succeeded "csv/$CSV_NAME" -n "$NAMESPACE" --timeout=300s 2>/dev/null; then
             log "✓ CSV is in Succeeded phase"
+            OPERATOR_READY=true
+        else
+            warning "CSV '$CSV_NAME' did not reach Succeeded within timeout"
         fi
+    elif [ -n "$CSV_NAME" ]; then
+        CSV_PHASE=$(oc get csv "$CSV_NAME" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
+        log "CSV '$CSV_NAME' phase: $CSV_PHASE"
+    else
+        warning "CSV name not listed yet (operator pod is the readiness signal)"
     fi
 
     # Step 6: Final check – verify CSV and pods
@@ -297,10 +307,10 @@ EOF
     log "Step 6: Final check - verifying CSV and pods..."
     log ""
     log "CSV status:"
-    oc get csv -n $NAMESPACE 2>/dev/null || log "  No CSV found"
+    oc get csv -n "$NAMESPACE" 2>/dev/null || log "  No CSV found"
     log ""
     log "Operator pod status:"
-    oc get pods -n $NAMESPACE 2>/dev/null || log "  No pods found"
+    oc get pods -n "$NAMESPACE" 2>/dev/null || log "  No pods found"
     log ""
 
     # Step 7: Verify final status
@@ -308,23 +318,23 @@ EOF
     log ""
 
     if [ -n "$CSV_NAME" ]; then
-        CSV_PHASE=$(oc get csv "$CSV_NAME" -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
-        
+        CSV_PHASE=$(oc get csv "$CSV_NAME" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
         if [ "$CSV_PHASE" = "Succeeded" ]; then
             log "✓ CSV Phase: Succeeded"
         else
-            warning "CSV Phase: $CSV_PHASE (expected: Succeeded)"
+            warning "CSV Phase: $CSV_PHASE (operator pod Running is sufficient to continue)"
         fi
-    else
-        warning "CSV name not found"
     fi
 
-    POD_STATUS=$(oc get pods -n $NAMESPACE -o jsonpath='{.items[*].status.phase}' 2>/dev/null || echo "")
-    if echo "$POD_STATUS" | grep -q "Running"; then
-        RUNNING_COUNT=$(echo "$POD_STATUS" | grep -o "Running" | wc -l | tr -d '[:space:]')
-        log "✓ Found $RUNNING_COUNT Running pod(s)"
+    if rhsso_operator_pod_running "$NAMESPACE"; then
+        log "✓ RHSSO operator pod is Running"
+        OPERATOR_READY=true
     else
-        warning "No Running pods found. Status: $POD_STATUS"
+        warning "RHSSO operator pod is not Running yet"
+    fi
+
+    if [ "$OPERATOR_READY" = false ]; then
+        error "RHSSO operator did not become ready. Check: oc get pods,csv,catalogsource -n $NAMESPACE"
     fi
 
     log ""
@@ -335,30 +345,22 @@ EOF
     log "Operator: rhsso-operator"
     if [ -n "$CSV_NAME" ]; then
         log "CSV: $CSV_NAME"
-        CSV_PHASE=$(oc get csv "$CSV_NAME" -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
+        CSV_PHASE=$(oc get csv "$CSV_NAME" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
         log "CSV Phase: $CSV_PHASE"
     fi
     log "========================================================="
     log ""
 else
-    # Operator already installed, get CSV name for display
-    CSV_NAME=$(oc get csv -n $NAMESPACE -o name 2>/dev/null | grep rhsso-operator | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || echo "")
-    if [ -z "$CSV_NAME" ]; then
-        CSV_NAME=$(oc get csv -n $NAMESPACE -l operators.coreos.com/rhsso-operator.rhsso -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    fi
-    if [ -z "$CSV_NAME" ]; then
-        CSV_NAME=$(oc get csv -n $NAMESPACE --no-headers 2>/dev/null | grep -i rhsso | head -1 | awk '{print $1}' || echo "")
-    fi
-    
+    CSV_NAME=$(discover_rhsso_csv_name "$NAMESPACE")
+
     log ""
     log "========================================================="
-    log "RHSSO Operator Status"
+    log "Keycloak / RHSSO Status"
     log "========================================================="
     log "Namespace: $NAMESPACE"
-    log "Operator: rhsso-operator"
     if [ -n "$CSV_NAME" ]; then
         log "CSV: $CSV_NAME"
-        CSV_PHASE=$(oc get csv "$CSV_NAME" -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
+        CSV_PHASE=$(oc get csv "$CSV_NAME" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
         log "CSV Phase: $CSV_PHASE"
     fi
     log "========================================================="

@@ -1,6 +1,6 @@
 ---
 site:
-  title: LB1161 - Sovereign Cloud Architecture with OpenShift, Multi-Cluster Data Residency and Compliance Management
+  title: Sovereign Cloud Management and Security with Red Hat OpenShift Platform Plus
   start_page: modules::index.adoc
 
 content:
