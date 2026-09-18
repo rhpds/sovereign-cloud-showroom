@@ -8,7 +8,7 @@
 
 *Own your software supply chain.*
 
-Ingest, build, sign, attest and secure your software supply chain. Take control by working hands-on with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
+Ingest, build, sign, attest and secure your software supply chain. Start from a verified link:{docs-hardened-images-url}[Red Hat Hardened Image^], then take control with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
 
 [[setup]]
 == Installation and Setup
@@ -62,28 +62,57 @@ IMPORTANT: If cosign is not installed, please run the following command to insta
 cd ~/svc-lab/tssc-setup && ./setup.sh
 ----
 
-== Getting your golden image
+[[golden-image]]
+== Getting your golden image from Red Hat Hardened Images
 
-Having your own golden image ensures you have full control and visibility over the software components included, significantly reducing security risks and supply chain vulnerabilities. By downloading and building golden images yourself, you guarantee provenance and compliance tailored to your organization's requirements. Ownership of these images allows for faster recovery, reproducibility, and assurance that no unapproved changes or dependencies are introduced into your environments.
+A golden image is only as trustworthy as its `FROM` line. Public tags such as `python:3.14-slim` on Docker Hub move, and they are not the runtime Red Hat builds, signs, and CVE-patches for production.
 
-We'll be building a python based application to demonstrate the signing and verification process. 
+link:{docs-hardened-images-url}[Red Hat Hardened Images^] (Hummingbird) are a no-cost catalog of *minimal, signed* runtimes at `registry.access.redhat.com/hi/…`. They are not a general-purpose UBI image: the standard runtime has no package manager or shell, which shrinks the attack surface. The *-builder* variant includes `dnf` and `pip` so you can compile and install, then copy artifacts into the minimal runtime.
+
+Browse the catalog at https://images.redhat.com/[images.redhat.com^]. This lab uses the Python 3.14 pair documented for custom application builds:
+
+* *Builder:* `{rhhi-python-builder}`
+* *Runtime:* `{rhhi-python-runtime}`
+
+You will *verify* those published images with Red Hat's Hardened Images key *before* you copy them into Quay. Later in this module you sign *your* application with in-cluster Trusted Artifact Signer. Those are two different trust roots: do not mix them.
+
+We'll rebuild a Python patient-portal frontend on that hardened base, then sign the result.
 
 .Procedure
-. First, let's download and push a public image to your Quay instance. Run the following commands in the terminal:
+. Verify the published Hardened Images with the Red Hat catalog key. This check uses Red Hat's public key and does *not* use your in-cluster Fulcio or Rekor:
 +
 [source,sh,subs="attributes",role=execute]
 ----
 source ~/.bashrc
-podman pull registry.access.redhat.com/ubi8/python-312:1-1775513555
-podman tag registry.access.redhat.com/ubi8/python-312:1-1775513555 $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden
-podman push --remove-signatures $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden
+cosign verify \
+  --key {rhhi-cosign-key-url} \
+  --insecure-ignore-tlog \
+  {rhhi-python-runtime}
+cosign verify \
+  --key {rhhi-cosign-key-url} \
+  --insecure-ignore-tlog \
+  {rhhi-python-builder}
 ----
 +
-UBI images from Red Hat carry signatures; pushing to another registry may change layer layout, so `--remove-signatures` avoids the error _Would invalidate signatures_. You are still pushing the same image content.
+`--insecure-ignore-tlog` is the documented pattern when you verify with a *key file* instead of a Rekor transparency log. See link:{docs-hardened-images-verify-url}[Verify the integrity of Red Hat Hardened Images^]. Expect a successful verify for both pull specs. If the key URL is blocked, stop and tell an instructor.
 
-You now have a container image in the local Quay registry.
+. Pull both variants, tag them into your Quay catalog, and push. `--remove-signatures` is required when the destination registry would rewrite layers and invalidate the Red Hat signature you just verified. You still push the same image content; your *application* signature comes later with Cosign and RHTAS:
++
+[source,sh,subs="attributes",role=execute]
+----
+podman pull {rhhi-python-builder}
+podman pull {rhhi-python-runtime}
+podman tag {rhhi-python-builder} $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder
+podman tag {rhhi-python-runtime} $QUAY_URL/$QUAY_USER/python-hi-314:3.14
+podman push --remove-signatures $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder
+podman push --remove-signatures $QUAY_URL/$QUAY_USER/python-hi-314:3.14
+----
+
+You now own both golden images in the local Quay registry: a builder you can compile on, and a minimal runtime you can ship.
 
 == Rebuilding the Patient Portal Frontend
+
+The upstream Dockerfile is a two-stage build. The first stage runs `pip install`; that needs the *builder* image. The second stage only copies the app; that should be the *runtime* image. See link:{docs-hardened-images-build-url}[Build custom application images^].
 
 .Procedure
 . Go to the `patient-portal-frontend` build directory in the Terminal tab on the right:
@@ -93,15 +122,18 @@ You now have a container image in the local Quay registry.
 cd ~/demo-applications/image-builds/patient-portal-frontend
 ----
 
-. Replace both `FROM` lines so the build uses your Quay golden image instead of Docker Hub. The upstream Dockerfile currently uses `python:3.14-slim`; this substitution matches any `python:` tag so it still works if that version moves:
+. Point the *build* stage at your Quay builder image and the *run* stage at your Quay runtime image. The upstream Dockerfile uses `docker.io/library/python:3.14-slim`; this substitution matches any `python:` tag so it still works if that version moves. Hardened Images expose `python3`, so also update the entrypoint:
 +
 [source,sh,subs="attributes",role=execute]
 ----
-sed -i "s|^FROM docker.io/library/python:[^[:space:]]*|FROM $QUAY_URL/$QUAY_USER/python-ubi-312:3.12-golden|g" Dockerfile
-grep '^FROM' Dockerfile
+sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS build|FROM $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder AS build|" Dockerfile
+sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS run|FROM $QUAY_URL/$QUAY_USER/python-hi-314:3.14 AS run|" Dockerfile
+sed -i '/AS build$/a USER root' Dockerfile
+sed -i 's|ENTRYPOINT \["python"|ENTRYPOINT ["python3"|' Dockerfile
+grep -E '^(FROM|USER|ENTRYPOINT)' Dockerfile
 ----
 +
-Both stages must show your Quay golden image. If either line still says `docker.io/library/python`, the next build pulls from Docker Hub and skips the golden image you just pushed.
+You should see `python-hi-314:3.14-builder AS build`, then `USER root`, then `python-hi-314:3.14 AS run`, and `python3`. `USER root` is only on the builder stage so `pip install` can write packages; the runtime image still defaults to non-root. If either `FROM` still says `docker.io/library/python`, the next build pulls from Docker Hub and skips the hardened images you just pushed.
 
 . Build the frontend container image:
 +
@@ -153,32 +185,61 @@ Platform:      linux/amd64
 ----
 +
 
-. Run the following commands in the terminal to set the environment variables for `cosign`:
+. Run the following commands in the terminal to set the environment variables for `cosign`. TUF can be running before its URL is on the CR — this block retries and falls back to the TUF route. If `setup.sh` already wrote `cosign-env.sh`, that file is used first:
 +
 [source,sh,subs="attributes",role=execute]
 ----
-export TUF_URL=$(oc get tuf -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
+source ~/.bashrc
+if [ -f ~/svc-lab/tssc-setup/cosign-env.sh ]; then
+  # shellcheck disable=SC1091
+  source ~/svc-lab/tssc-setup/cosign-env.sh
+fi
+
+for _i in $(seq 1 12); do
+  if [ -z "${TUF_URL:-}" ]; then
+    TUF_URL=$(oc get tuf -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer 2>/dev/null)
+  fi
+  if [ -z "${TUF_URL:-}" ]; then
+    TUF_URL=$(oc get securesign -o jsonpath='{.items[0].status.tuf.url}' -n trusted-artifact-signer 2>/dev/null)
+  fi
+  if [ -z "${TUF_URL:-}" ]; then
+    TUF_HOST=$(oc get route -n trusted-artifact-signer -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.host}{"\n"}{end}' 2>/dev/null | awk 'tolower($1) ~ /tuf/ {print $2; exit}')
+    [ -n "${TUF_HOST:-}" ] && TUF_URL="https://${TUF_HOST}"
+  fi
+  [ -n "${TUF_URL:-}" ] && break
+  echo "Waiting for TUF URL (${_i}/12)..."
+  sleep 10
+done
+export TUF_URL
+
 # Issuer must match Fulcio's configured OIDC issuer (path may be /realms/... or /auth/realms/...).
-export OIDC_ISSUER_URL=$(oc get fulcio -n trusted-artifact-signer -o jsonpath='{.items[0].spec.config.oidcIssuers[0].issuer}' 2>/dev/null)
-if [ -z "$OIDC_ISSUER_URL" ]; then
+if [ -z "${OIDC_ISSUER_URL:-}" ]; then
+  export OIDC_ISSUER_URL=$(oc get fulcio -n trusted-artifact-signer -o jsonpath='{.items[0].spec.config.oidcIssuers[0].issuer}' 2>/dev/null)
+fi
+if [ -z "${OIDC_ISSUER_URL:-}" ]; then
   export OIDC_ISSUER_URL=$(oc get fulcio -n trusted-artifact-signer -o jsonpath='{.items[0].spec.config.OIDCIssuers[0].Issuer}' 2>/dev/null)
 fi
-if [ -z "$OIDC_ISSUER_URL" ]; then
+if [ -z "${OIDC_ISSUER_URL:-}" ]; then
   export OIDC_ISSUER_URL=$(oc get securesign -n trusted-artifact-signer -o jsonpath='{.items[0].spec.fulcio.config.oidcIssuers[0].issuer}' 2>/dev/null)
 fi
-if [ -z "$OIDC_ISSUER_URL" ]; then
+if [ -z "${OIDC_ISSUER_URL:-}" ]; then
   export OIDC_ISSUER_URL=$(oc get securesign -n trusted-artifact-signer -o jsonpath='{.items[0].spec.fulcio.config.OIDCIssuers[0].Issuer}' 2>/dev/null)
 fi
-if [ -z "$OIDC_ISSUER_URL" ]; then
+if [ -z "${OIDC_ISSUER_URL:-}" ]; then
   KK_HOST=$(oc get route keycloak -n keycloak -o jsonpath='{.spec.host}' 2>/dev/null)
   if [ -n "$KK_HOST" ]; then export OIDC_ISSUER_URL="https://${KK_HOST}/realms/openshift"; fi
 fi
-if [ -z "$OIDC_ISSUER_URL" ]; then
+if [ -z "${OIDC_ISSUER_URL:-}" ]; then
   KK_HOST=$(oc get route keycloak -n rhsso -o jsonpath='{.spec.host}' 2>/dev/null)
   if [ -n "$KK_HOST" ]; then export OIDC_ISSUER_URL="https://${KK_HOST}/auth/realms/openshift"; fi
 fi
-export COSIGN_FULCIO_URL=$(oc get fulcio -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
-export COSIGN_REKOR_URL=$(oc get rekor -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer)
+
+if [ -z "${COSIGN_FULCIO_URL:-}" ]; then
+  export COSIGN_FULCIO_URL=$(oc get fulcio -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer 2>/dev/null)
+fi
+if [ -z "${COSIGN_REKOR_URL:-}" ]; then
+  export COSIGN_REKOR_URL=$(oc get rekor -o jsonpath='{.items[0].status.url}' -n trusted-artifact-signer 2>/dev/null)
+fi
 export COSIGN_MIRROR=$TUF_URL
 export COSIGN_ROOT=$TUF_URL/root.json
 export COSIGN_OIDC_CLIENT_ID="trusted-artifact-signer"
@@ -189,7 +250,8 @@ export SIGSTORE_FULCIO_URL=$COSIGN_FULCIO_URL
 export SIGSTORE_OIDC_ISSUER=$COSIGN_OIDC_ISSUER
 export SIGSTORE_REKOR_URL=$COSIGN_REKOR_URL
 export REKOR_REKOR_SERVER=$COSIGN_REKOR_URL
-echo "$OIDC_ISSUER_URL"
+echo "TUF_URL=$TUF_URL"
+echo "OIDC_ISSUER_URL=$OIDC_ISSUER_URL"
 env | grep URL
 ----
 +
@@ -247,7 +309,7 @@ Root status:
 }
 ----
 
-Cryptographic signing lets you control which container images can run in your environment, making sure only trusted, verified images are used.
+Cryptographic signing lets you control which container images can run in your environment, making sure only trusted, verified images are used. You already verified Red Hat's signature on the Hardened Image *base*. This step binds *your* identity to the application image you built on that base.
 
 `cosign` will be interacting with the image in our private registry, therefore we need to log in to Quay.
 

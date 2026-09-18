@@ -569,11 +569,65 @@ rhtas_route_present() {
     oc get route -n "$RHTAS_NAMESPACE" --no-headers 2>/dev/null | awk -v n="$needle" 'BEGIN{IGNORECASE=1} $1 ~ n {found=1} END {exit !found}'
 }
 
+rhtas_https_route() {
+    local needle=$1 name host
+    name=$(oc get route -n "$RHTAS_NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | awk -v n="$needle" 'BEGIN{IGNORECASE=1} $0 ~ n {print; exit}')
+    [ -z "$name" ] && return 1
+    host=$(oc get route "$name" -n "$RHTAS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    [ -n "$host" ] || return 1
+    printf 'https://%s' "$host"
+}
+
+resolve_tuf_url() {
+    local url=""
+    if [ -n "${SECURESIGN_NAME:-}" ]; then
+        url=$(oc get securesigns "$SECURESIGN_NAME" -n "$RHTAS_NAMESPACE" -o jsonpath='{.status.tuf.url}' 2>/dev/null || true)
+    fi
+    if [ -z "$url" ]; then
+        url=$(oc get tufs -n "$RHTAS_NAMESPACE" -o jsonpath='{.items[0].status.url}' 2>/dev/null || true)
+    fi
+    if [ -z "$url" ]; then
+        url=$(rhtas_https_route tuf || true)
+    fi
+    printf '%s' "$url"
+}
+
+resolve_fulcio_url() {
+    local url=""
+    if [ -n "${SECURESIGN_NAME:-}" ]; then
+        url=$(oc get securesigns "$SECURESIGN_NAME" -n "$RHTAS_NAMESPACE" -o jsonpath='{.status.fulcio.url}' 2>/dev/null || true)
+    fi
+    if [ -z "$url" ]; then
+        url=$(oc get fulcios -n "$RHTAS_NAMESPACE" -o jsonpath='{.items[0].status.url}' 2>/dev/null || true)
+    fi
+    if [ -z "$url" ]; then
+        url=$(rhtas_https_route fulcio || true)
+    fi
+    printf '%s' "$url"
+}
+
+resolve_rekor_url() {
+    local url=""
+    if [ -n "${SECURESIGN_NAME:-}" ]; then
+        url=$(oc get securesigns "$SECURESIGN_NAME" -n "$RHTAS_NAMESPACE" -o jsonpath='{.status.rekor.url}' 2>/dev/null || true)
+    fi
+    if [ -z "$url" ]; then
+        url=$(oc get rekors -n "$RHTAS_NAMESPACE" -o jsonpath='{.items[0].status.url}' 2>/dev/null || true)
+    fi
+    if [ -z "$url" ]; then
+        url=$(rhtas_https_route rekor || true)
+    fi
+    printf '%s' "$url"
+}
+
 MAX_WAIT=180
 WAIT_COUNT=0
 TUF_READY=false
 FULCIO_READY=false
 REKOR_READY=false
+TUF_URL=""
+FULCIO_URL=""
+REKOR_URL=""
 
 # Initialize component names if not set (for individual CR creation path)
 if [ -z "${TUF_NAME:-}" ]; then
@@ -670,16 +724,25 @@ while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
     fi
 
     if [ "$TUF_READY" != true ] && { rhtas_workload_running tuf || rhtas_route_present tuf; }; then
-        TUF_READY=true
-        log "✓ TUF is ready (pod/route)"
+        TUF_URL=$(resolve_tuf_url)
+        if [ -n "$TUF_URL" ]; then
+            TUF_READY=true
+            log "✓ TUF is ready at: ${TUF_URL}"
+        fi
     fi
     if [ "$FULCIO_READY" != true ] && { rhtas_workload_running fulcio || rhtas_route_present fulcio; }; then
-        FULCIO_READY=true
-        log "✓ Fulcio is ready (pod/route)"
+        FULCIO_URL=$(resolve_fulcio_url)
+        if [ -n "$FULCIO_URL" ]; then
+            FULCIO_READY=true
+            log "✓ Fulcio is ready at: ${FULCIO_URL}"
+        fi
     fi
     if [ "$REKOR_READY" != true ] && { rhtas_workload_running rekor || rhtas_route_present rekor; }; then
-        REKOR_READY=true
-        log "✓ Rekor is ready (pod/route)"
+        REKOR_URL=$(resolve_rekor_url)
+        if [ -n "$REKOR_URL" ]; then
+            REKOR_READY=true
+            log "✓ Rekor is ready at: ${REKOR_URL}"
+        fi
     fi
     
     # If all are ready, break
@@ -764,31 +827,13 @@ while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
     fi
 done
 
-# Get final URLs if not already set
-if [ "$TUF_READY" = false ]; then
-    if [ -n "$SECURESIGN_NAME" ]; then
-        TUF_URL=$(oc get securesigns $SECURESIGN_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.tuf.url}' 2>/dev/null || echo "")
-    elif [ -n "$TUF_NAME" ]; then
-        TUF_URL=$(oc get tufs $TUF_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.url}' 2>/dev/null || echo "")
-    fi
-fi
-if [ "$FULCIO_READY" = false ]; then
-    if [ -n "$SECURESIGN_NAME" ]; then
-        FULCIO_URL=$(oc get securesigns $SECURESIGN_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.fulcio.url}' 2>/dev/null || echo "")
-    elif [ -n "$FULCIO_NAME" ]; then
-        FULCIO_URL=$(oc get fulcios $FULCIO_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.url}' 2>/dev/null || echo "")
-    fi
-fi
-if [ "$REKOR_READY" = false ]; then
-    if [ -n "$SECURESIGN_NAME" ]; then
-        REKOR_URL=$(oc get securesigns $SECURESIGN_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.rekor.url}' 2>/dev/null || echo "")
-    elif [ -z "$REKOR_NAME" ]; then
-        REKOR_NAME=$(oc get rekors -n $RHTAS_NAMESPACE -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "rekor-server")
-    fi
-    if [ -n "$REKOR_NAME" ]; then
-        REKOR_URL=$(oc get rekors $REKOR_NAME -n $RHTAS_NAMESPACE -o jsonpath='{.status.url}' 2>/dev/null || echo "")
-    fi
-fi
+# Get final URLs (pods/routes can be up before Securesign publishes .status.*.url)
+TUF_URL=$(resolve_tuf_url)
+FULCIO_URL=$(resolve_fulcio_url)
+REKOR_URL=$(resolve_rekor_url)
+[ -n "$TUF_URL" ] && TUF_READY=true
+[ -n "$FULCIO_URL" ] && FULCIO_READY=true
+[ -n "$REKOR_URL" ] && REKOR_READY=true
 
 # Cosign / Sigstore env file (matches module-03 workstation exports)
 COSIGN_ENV_FILE="${SCRIPT_DIR}/cosign-env.sh"
@@ -828,23 +873,23 @@ log ""
 
 if [ "$TUF_READY" = true ]; then
     log "✓ TUF: Ready"
-    log "  URL: ${TUF_URL}"
+    log "  URL: ${TUF_URL:-not published yet}"
 else
     warning "TUF: Not ready"
 fi
 
 if [ "$FULCIO_READY" = true ]; then
     log "✓ Fulcio: Ready"
-    log "  URL: ${FULCIO_URL}"
-    log "  OIDC Issuer: ${OIDC_ISSUER_URL}"
-    log "  OIDC Client ID: ${OIDC_CLIENT_ID}"
+    log "  URL: ${FULCIO_URL:-not published yet}"
+    log "  OIDC Issuer: ${OIDC_ISSUER_URL:-}"
+    log "  OIDC Client ID: ${OIDC_CLIENT_ID:-}"
 else
     warning "Fulcio: Not ready"
 fi
 
 if [ "$REKOR_READY" = true ]; then
     log "✓ Rekor: Ready"
-    log "  URL: ${REKOR_URL}"
+    log "  URL: ${REKOR_URL:-not published yet}"
 else
     warning "Rekor: Not ready"
 fi

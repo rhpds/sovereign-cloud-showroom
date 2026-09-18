@@ -67,12 +67,11 @@
       ignore_errors: true
 
     # -------------------------------------------------------
-    # Check 2 — Golden Python UBI image in Quay
-    # Uses Bearer token (quay_admin_token) — Quay API requires OAuth token, not basic auth
+    # Check 2 — Hardened Python runtime image in Quay
     # -------------------------------------------------------
-    - name: Check python-ubi-312:3.12-golden exists in Quay
+    - name: Check python-hi-314:3.14 exists in Quay
       ansible.builtin.uri:
-        url: "https://{{ quay_url }}/api/v1/repository/quayadmin/python-ubi-312/tag/?specificTag=3.12-golden"
+        url: "https://{{ quay_url }}/api/v1/repository/quayadmin/python-hi-314/tag/?specificTag=3.14"
         method: GET
         headers:
           Authorization: "Bearer {{ quay_token }}"
@@ -98,9 +97,9 @@
       ignore_errors: true
 
     # -------------------------------------------------------
-    # Check 4 — Dockerfile FROM line updated to golden image
+    # Check 4 — Dockerfile uses Hardened Image builder + runtime
     # -------------------------------------------------------
-    - name: Check Dockerfile FROM line references golden image on bastion
+    - name: Check Dockerfile FROM lines reference Hardened Images on bastion
       ansible.builtin.command:
         argv:
           - bash
@@ -110,7 +109,9 @@
             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30
             -p {{ bastion_port }}
             {{ bastion_user }}@{{ bastion_host }}
-            'grep -q "python-ubi-312"
+            'grep -q "python-hi-314:3.14-builder"
+            ~/demo-applications/image-builds/patient-portal-frontend/Dockerfile
+            && grep -q "python-hi-314:3.14"
             ~/demo-applications/image-builds/patient-portal-frontend/Dockerfile
             && echo ok || echo missing'
       register: r_dockerfile
@@ -296,9 +297,9 @@
              and _task5_ok and _task6_ok and _task7_ok and _task8_ok }}
         success_msg: |
           Task 1: cosign binary present on bastion
-          Task 2: python-ubi-312:3.12-golden image exists in Quay
+          Task 2: python-hi-314:3.14 Hardened Image exists in Quay
           Task 3: patient-portal-frontend:1.0 image exists in Quay
-          Task 4: Dockerfile FROM line updated to golden image
+          Task 4: Dockerfile FROM lines updated to Hardened Images
           Task 5: cosign TUF initialized (~/.sigstore exists)
           Task 6: TUF, Fulcio, and Rekor CRs all have status URLs
           Task 7: Keycloak route is reachable
@@ -306,12 +307,12 @@
         fail_msg: |
           {{ 'Task 1: cosign binary present on bastion' if _task1_ok
              else 'Task 1: cosign binary not found — run the setup.sh script from ~/svc-lab/tssc-setup/setup.sh' }}
-          {{ 'Task 2: python-ubi-312:3.12-golden image exists in Quay' if _task2_ok
-             else 'Task 2: python-ubi-312:3.12-golden not found in Quay — pull, tag, and push the golden image per the lab instructions' }}
+          {{ 'Task 2: python-hi-314:3.14 Hardened Image exists in Quay' if _task2_ok
+             else 'Task 2: python-hi-314:3.14 not found in Quay — verify, pull, tag, and push the Red Hat Hardened Images per the lab instructions' }}
           {{ 'Task 3: patient-portal-frontend:1.0 image exists in Quay' if _task3_ok
              else 'Task 3: patient-portal-frontend:1.0 not found in Quay — build and push the image using the updated Dockerfile' }}
-          {{ 'Task 4: Dockerfile FROM line updated to golden image' if _task4_ok
-             else 'Task 4: Dockerfile still references original base image — update the FROM line to point to python-ubi-312:3.12-golden in Quay' }}
+          {{ 'Task 4: Dockerfile FROM lines updated to Hardened Images' if _task4_ok
+             else 'Task 4: Dockerfile still references original base image — update the FROM lines to python-hi-314:3.14-builder (build) and python-hi-314:3.14 (run) in Quay' }}
           {{ 'Task 5: cosign TUF initialized (~/.sigstore exists)' if _task5_ok
              else 'Task 5: ~/.sigstore not found — compute ROOT_CHECKSUM from $TUF_URL/root.json and run cosign initialize --mirror --root --root-checksum' }}
           {{ 'Task 6: TUF, Fulcio, and Rekor CRs all have status URLs' if _task6_ok

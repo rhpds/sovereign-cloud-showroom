@@ -22,6 +22,7 @@
 * xref:module-03.adoc[3. Technology and Supply Chain]
 ** xref:module-03.adoc#module-goals[Module Goals]
 ** xref:module-03.adoc#setup[Installation and Setup]
+** xref:module-03.adoc#golden-image[Red Hat Hardened Images]
 ** xref:module-03.adoc#signing-your-software[Signing Your Software]
 
 * xref:module-04.adoc[4. Data and AI]

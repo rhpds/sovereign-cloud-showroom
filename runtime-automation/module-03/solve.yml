@@ -166,40 +166,50 @@
       ignore_errors: true
 
     # ------------------------------------------------------------------
-    # block-03 — pull, tag, push golden Python UBI image
+    # block-03 — verify, pull, tag, push Red Hat Hardened Images (hi/python)
     # ------------------------------------------------------------------
-    - name: Pull, tag and push golden Python UBI image to Quay
+    - name: Verify, pull, tag and push Hardened Python images to Quay
       ansible.builtin.command:
         argv:
           - bash
           - -c
           - |
             sshpass -p {{ bastion_pass | quote }} \
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=120 \
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=180 \
             -p {{ bastion_port }} \
             {{ bastion_user }}@{{ bastion_host }} \
             'set -e
             QUAY_URL="{{ quay_url }}"
             QUAY_USER="{{ quay_user }}"
-            SOURCE=registry.access.redhat.com/ubi8/python-312:1-1775513555
-            TARGET=${QUAY_URL}/${QUAY_USER}/python-ubi-312:3.12-golden
-            if podman manifest inspect ${TARGET} --tls-verify=false 2>/dev/null; then
-              echo "Golden image already in Quay — skipping"
+            BUILDER_SRC=registry.access.redhat.com/hi/python:3.14-builder
+            RUNTIME_SRC=registry.access.redhat.com/hi/python:3.14
+            BUILDER_DST=${QUAY_URL}/${QUAY_USER}/python-hi-314:3.14-builder
+            RUNTIME_DST=${QUAY_URL}/${QUAY_USER}/python-hi-314:3.14
+            KEY_URL=https://security.access.redhat.com/data/63405576.txt
+            if command -v cosign >/dev/null 2>&1; then
+              cosign verify --key "$KEY_URL" --insecure-ignore-tlog "$RUNTIME_SRC" || true
+              cosign verify --key "$KEY_URL" --insecure-ignore-tlog "$BUILDER_SRC" || true
+            fi
+            if podman manifest inspect ${RUNTIME_DST} --tls-verify=false 2>/dev/null \
+               && podman manifest inspect ${BUILDER_DST} --tls-verify=false 2>/dev/null; then
+              echo "Hardened images already in Quay — skipping"
             else
-              podman pull ${SOURCE}
-              podman tag ${SOURCE} ${TARGET}
-              podman push --remove-signatures --tls-verify=false ${TARGET}
-              echo "Golden image pushed"
+              podman pull ${BUILDER_SRC}
+              podman pull ${RUNTIME_SRC}
+              podman tag ${BUILDER_SRC} ${BUILDER_DST}
+              podman tag ${RUNTIME_SRC} ${RUNTIME_DST}
+              podman push --remove-signatures --tls-verify=false ${BUILDER_DST}
+              podman push --remove-signatures --tls-verify=false ${RUNTIME_DST}
+              echo "Hardened images pushed"
             fi'
       when: quay_url | length > 0
       register: r_golden_image
       ignore_errors: true
 
     # ------------------------------------------------------------------
-    # block-04 — always update Dockerfile FROM line to golden image
-    # (done unconditionally so on-disk Dockerfile always reflects golden image)
+    # block-04 — point Dockerfile at Hardened Image builder + runtime in Quay
     # ------------------------------------------------------------------
-    - name: Update Dockerfile FROM line to use golden image
+    - name: Update Dockerfile FROM lines to Hardened Images
       ansible.builtin.command:
         argv:
           - bash
@@ -212,12 +222,15 @@
             'QUAY_URL="{{ quay_url }}"
             QUAY_USER="{{ quay_user }}"
             BUILD_DIR=~/demo-applications/image-builds/patient-portal-frontend
-            GOLDEN=${QUAY_URL}/${QUAY_USER}/python-ubi-312:3.12-golden
+            BUILDER=${QUAY_URL}/${QUAY_USER}/python-hi-314:3.14-builder
+            RUNTIME=${QUAY_URL}/${QUAY_USER}/python-hi-314:3.14
             cd ${BUILD_DIR}
-            # Replace any "FROM docker.io/library/python:*" line with the golden image
-            sed -i "s|^FROM docker.io/library/python:[^[:space:]]*|FROM ${GOLDEN}|g" Dockerfile
-            echo "Dockerfile FROM lines after update:"
-            grep "^FROM" Dockerfile'
+            sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS build|FROM ${BUILDER} AS build|" Dockerfile
+            sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS run|FROM ${RUNTIME} AS run|" Dockerfile
+            grep -q "^USER root" Dockerfile || sed -i "/AS build$/a USER root" Dockerfile
+            sed -i "s|ENTRYPOINT \[\"python\"|ENTRYPOINT [\"python3\"|" Dockerfile
+            echo "Dockerfile FROM/USER/ENTRYPOINT after update:"
+            grep -E "^(FROM|USER|ENTRYPOINT)" Dockerfile'
       when: quay_url | length > 0
       register: r_dockerfile_update
       ignore_errors: true

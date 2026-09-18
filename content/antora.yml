@@ -13,3 +13,9 @@ asciidoc:
     page-links:
     - url: https://redhat.com
       text: Red Hat
+    rhhi-python-builder: registry.access.redhat.com/hi/python:3.14-builder
+    rhhi-python-runtime: registry.access.redhat.com/hi/python:3.14
+    rhhi-cosign-key-url: https://security.access.redhat.com/data/63405576.txt
+    docs-hardened-images-url: https://docs.redhat.com/en/documentation/red_hat_hardened_images/1-latest/html-single/build_and_deploy_secure_minimal_containers_with_red_hat_hardened_images/index
+    docs-hardened-images-build-url: https://docs.redhat.com/en/documentation/red_hat_hardened_images/1-latest/develop-build_custom_application_images
+    docs-hardened-images-verify-url: https://docs.redhat.com/en/documentation/red_hat_hardened_images/1-latest/develop-run_containerized_tools_with_red_hat_hardened_images
