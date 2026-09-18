@@ -22,7 +22,7 @@ First, we need to set up the applications for this module.
 ----
 source ~/.bashrc
 cosign version
-podman login https://$QUAY_URL -u $QUAY_USER -p {quay_admin_password}
+podman login https://$QUAY_URL -u $QUAY_USER -p {quay_admin_password} --tls-verify=false
 ----
 +
 .Sample Output
@@ -96,17 +96,24 @@ cosign verify \
 +
 `--insecure-ignore-tlog` is the documented pattern when you verify with a *key file* instead of a Rekor transparency log. See link:{docs-hardened-images-verify-url}[Verify the integrity of Red Hat Hardened Images^]. Expect a successful verify for both pull specs. If the key URL is blocked, stop and tell an instructor.
 
-. Pull both variants, tag them into your Quay catalog, and push. `--remove-signatures` is required when the destination registry would rewrite layers and invalidate the Red Hat signature you just verified. You still push the same image content; your *application* signature comes later with Cosign and RHTAS:
+. Pull both variants, tag them into your Quay catalog, and push. `--remove-signatures` is required when the destination registry would rewrite layers and invalidate the Red Hat signature you just verified. You still push the same image content; your *application* signature comes later with Cosign and RHTAS. Workshop Quay uses a lab TLS certificate, so `--tls-verify=false` is required on login and push:
 +
 [source,sh,subs="attributes",role=execute]
 ----
+source ~/.bashrc
+podman login https://$QUAY_URL -u $QUAY_USER -p {quay_admin_password} --tls-verify=false
 podman pull {rhhi-python-builder}
 podman pull {rhhi-python-runtime}
 podman tag {rhhi-python-builder} $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder
 podman tag {rhhi-python-runtime} $QUAY_URL/$QUAY_USER/python-hi-314:3.14
-podman push --remove-signatures $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder
-podman push --remove-signatures $QUAY_URL/$QUAY_USER/python-hi-314:3.14
+podman push --remove-signatures --tls-verify=false $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder
+podman push --remove-signatures --tls-verify=false $QUAY_URL/$QUAY_USER/python-hi-314:3.14
+podman pull --tls-verify=false $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder
+podman pull --tls-verify=false $QUAY_URL/$QUAY_USER/python-hi-314:3.14
+podman images | grep python-hi-314
 ----
++
+The last command must list both `python-hi-314:3.14-builder` and `python-hi-314:3.14`. If `podman build` later reports `repository not found` for `python-hi-314`, this push did not land — re-run this block before you edit the Dockerfile.
 
 You now own both golden images in the local Quay registry: a builder you can compile on, and a minimal runtime you can ship.
 
@@ -126,9 +133,9 @@ cd ~/demo-applications/image-builds/patient-portal-frontend
 +
 [source,sh,subs="attributes",role=execute]
 ----
-sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS build|FROM $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder AS build|" Dockerfile
-sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS run|FROM $QUAY_URL/$QUAY_USER/python-hi-314:3.14 AS run|" Dockerfile
-sed -i '/AS build$/a USER root' Dockerfile
+sed -i "s|^FROM .* AS build|FROM $QUAY_URL/$QUAY_USER/python-hi-314:3.14-builder AS build|" Dockerfile
+sed -i "s|^FROM .* AS run|FROM $QUAY_URL/$QUAY_USER/python-hi-314:3.14 AS run|" Dockerfile
+grep -q '^USER root' Dockerfile || sed -i '/AS build$/a USER root' Dockerfile
 sed -i 's|ENTRYPOINT \["python"|ENTRYPOINT ["python3"|' Dockerfile
 grep -E '^(FROM|USER|ENTRYPOINT)' Dockerfile
 ----
@@ -139,14 +146,14 @@ You should see `python-hi-314:3.14-builder AS build`, then `USER root`, then `py
 +
 [source,sh,subs="attributes",role=execute]
 ----
-podman build -t $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0 .
+podman build --tls-verify=false -t $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0 .
 ----
 
 . Push the image to your Quay instance:
 +
 [source,sh,subs="attributes",role=execute]
 ----
-podman push $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
+podman push --tls-verify=false $QUAY_URL/$QUAY_USER/patient-portal-frontend:1.0
 ----
 
 [[signing-your-software]]

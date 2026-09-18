@@ -200,6 +200,8 @@
               podman tag ${RUNTIME_SRC} ${RUNTIME_DST}
               podman push --remove-signatures --tls-verify=false ${BUILDER_DST}
               podman push --remove-signatures --tls-verify=false ${RUNTIME_DST}
+              podman pull --tls-verify=false ${BUILDER_DST}
+              podman pull --tls-verify=false ${RUNTIME_DST}
               echo "Hardened images pushed"
             fi'
       when: quay_url | length > 0
@@ -225,8 +227,8 @@
             BUILDER=${QUAY_URL}/${QUAY_USER}/python-hi-314:3.14-builder
             RUNTIME=${QUAY_URL}/${QUAY_USER}/python-hi-314:3.14
             cd ${BUILD_DIR}
-            sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS build|FROM ${BUILDER} AS build|" Dockerfile
-            sed -i "s|^FROM docker.io/library/python:[^[:space:]]* AS run|FROM ${RUNTIME} AS run|" Dockerfile
+            sed -i "s|^FROM .* AS build|FROM ${BUILDER} AS build|" Dockerfile
+            sed -i "s|^FROM .* AS run|FROM ${RUNTIME} AS run|" Dockerfile
             grep -q "^USER root" Dockerfile || sed -i "/AS build$/a USER root" Dockerfile
             sed -i "s|ENTRYPOINT \[\"python\"|ENTRYPOINT [\"python3\"|" Dockerfile
             echo "Dockerfile FROM/USER/ENTRYPOINT after update:"
@@ -258,7 +260,7 @@
               echo "patient-portal-frontend:1.0 already in Quay — skipping build/push"
             else
               echo "Building ${TARGET} ..."
-              timeout 600 podman build -t ${TARGET} .
+              timeout 600 podman build --tls-verify=false -t ${TARGET} .
               echo "Pushing ${TARGET} ..."
               podman push --tls-verify=false ${TARGET}
               echo "patient-portal-frontend pushed"
