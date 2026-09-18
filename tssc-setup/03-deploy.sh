@@ -559,7 +559,17 @@ log ""
 # Wait for components to be ready
 log "Waiting for RHTAS components to be ready..."
 
-MAX_WAIT=600
+rhtas_workload_running() {
+    local needle=$1
+    oc get pods -n "$RHTAS_NAMESPACE" --no-headers 2>/dev/null | awk -v n="$needle" 'BEGIN{IGNORECASE=1} $1 ~ n && $3=="Running" && $2 !~ /^0\// {found=1} END {exit !found}'
+}
+
+rhtas_route_present() {
+    local needle=$1
+    oc get route -n "$RHTAS_NAMESPACE" --no-headers 2>/dev/null | awk -v n="$needle" 'BEGIN{IGNORECASE=1} $1 ~ n {found=1} END {exit !found}'
+}
+
+MAX_WAIT=180
 WAIT_COUNT=0
 TUF_READY=false
 FULCIO_READY=false
@@ -657,6 +667,19 @@ while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
                 fi
             fi
         fi
+    fi
+
+    if [ "$TUF_READY" != true ] && { rhtas_workload_running tuf || rhtas_route_present tuf; }; then
+        TUF_READY=true
+        log "✓ TUF is ready (pod/route)"
+    fi
+    if [ "$FULCIO_READY" != true ] && { rhtas_workload_running fulcio || rhtas_route_present fulcio; }; then
+        FULCIO_READY=true
+        log "✓ Fulcio is ready (pod/route)"
+    fi
+    if [ "$REKOR_READY" != true ] && { rhtas_workload_running rekor || rhtas_route_present rekor; }; then
+        REKOR_READY=true
+        log "✓ Rekor is ready (pod/route)"
     fi
     
     # If all are ready, break

@@ -602,7 +602,7 @@ else
     fi
 fi
 
-MAX_WAIT_KEYCLOAK=300
+MAX_WAIT_KEYCLOAK=120
 WAIT_COUNT=0
 KEYCLOAK_READY=false
 
@@ -675,8 +675,8 @@ if [ "$KEYCLOAK_READY" = false ]; then
 fi
 
 # KeycloakRealm / KeycloakClient / KeycloakUser: must reconcile before RHTAS install continues. Override timeouts via env.
-MAX_WAIT_KC_REALM_CLIENT="${MAX_WAIT_KC_REALM_CLIENT:-600}"
-MAX_WAIT_KC_USER="${MAX_WAIT_KC_USER:-300}"
+MAX_WAIT_KC_REALM_CLIENT="${MAX_WAIT_KC_REALM_CLIENT:-180}"
+MAX_WAIT_KC_USER="${MAX_WAIT_KC_USER:-120}"
 
 # Red Hat build of Keycloak: realm is created via KeycloakRealmImport (k8s.keycloak.org/v2alpha1).
 # Legacy keycloak.org/v1alpha1 KeycloakRealm CRs are not reconciled by rhbk-operator (empty .status).
@@ -1122,10 +1122,12 @@ spec:
   name: rhtas-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: rhtas-operator.v1.3.1
 EOF
     echo "✓ RHTAS Operator subscription created in $OPERATOR_NAMESPACE namespace"
 fi
+# Drop a stale startingCSV pin from a previous run (apply will not remove the field).
+oc patch "${OLM_SUB}" trusted-artifact-signer -n "$OPERATOR_NAMESPACE" --type json \
+    -p '[{"op":"remove","path":"/spec/startingCSV"}]' 2>/dev/null || true
 
 # Some clusters require InstallPlan approval even when spec.installPlanApproval is Automatic (policy / OLM).
 approve_rhtas_installplan_if_needed() {
@@ -1140,13 +1142,44 @@ approve_rhtas_installplan_if_needed() {
     fi
 }
 
+# OLM can leave CSV in Installing long after the operator Deployment/Pods are actually ready.
+rhtas_operator_controller_ready() {
+    local dep ready want n
+    n=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+    if [ "${n:-0}" -ge 1 ]; then
+        ready=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.ready}{"\n"}{end}{end}' 2>/dev/null | grep -c true || echo 0)
+        if [ "${ready:-0}" -ge 1 ]; then
+            return 0
+        fi
+    fi
+    if oc get pods -n openshift-operators --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qiE 'trusted-artifact-signer|rhtas'; then
+        return 0
+    fi
+    dep=$(oc get deployment -n openshift-operators -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -iE 'trusted-artifact-signer|rhtas' | head -1)
+    if [ -n "$dep" ]; then
+        ready=$(oc get deployment "$dep" -n openshift-operators -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+        want=$(oc get deployment "$dep" -n openshift-operators -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)
+        if [ -n "${ready:-}" ] && [ "${want:-1}" != "0" ] && [ "$ready" = "$want" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Wait for RHTAS Operator to be ready
 echo "Waiting for RHTAS Operator to be ready..."
-
-# First, wait for CSV to appear
-echo "Waiting for CSV to be created..."
 CSV_NAME=""
-MAX_WAIT_CSV=300
+DEPLOYMENT_READY=false
+CSV_SUCCEEDED=false
+
+if rhtas_operator_controller_ready; then
+    echo "✓ RHTAS operator controller is already Running — skipping CSV wait"
+    CSV_NAME=$(oc get csv -n openshift-operators -o name 2>/dev/null | grep -iE "trusted-artifact-signer|rhtas-operator" | head -1 | sed 's|.*/||' || echo "")
+    DEPLOYMENT_READY=true
+    CSV_SUCCEEDED=true
+else
+echo "Waiting for operator pods (CSV name is optional)..."
+MAX_WAIT_CSV=180
 WAIT_COUNT=0
 
 approve_rhtas_installplan_if_needed
@@ -1154,7 +1187,14 @@ approve_rhtas_installplan_if_needed
 while [ $WAIT_COUNT -lt $MAX_WAIT_CSV ]; do
     approve_rhtas_installplan_if_needed
 
-    # Try multiple methods to find the CSV
+    if rhtas_operator_controller_ready; then
+        echo "✓ RHTAS operator controller is Running"
+        DEPLOYMENT_READY=true
+        CSV_SUCCEEDED=true
+        CSV_NAME=$(oc get csv -n openshift-operators -o name 2>/dev/null | grep -iE "trusted-artifact-signer|rhtas-operator" | head -1 | sed 's|.*/||' || echo "")
+        break
+    fi
+
     CSV_NAME=$(oc get csv -n openshift-operators -o jsonpath='{.items[?(@.spec.displayName=="Trusted Artifact Signer Operator")].metadata.name}' 2>/dev/null || echo "")
     if [ -z "$CSV_NAME" ]; then
         CSV_NAME=$(oc get csv -n openshift-operators -o name 2>/dev/null | grep -iE "trusted-artifact-signer|rhtas-operator" | head -1 | sed 's|clusterserviceversion.operators.coreos.com/||' || echo "")
@@ -1171,46 +1211,26 @@ while [ $WAIT_COUNT -lt $MAX_WAIT_CSV ]; do
     sleep 5
     WAIT_COUNT=$((WAIT_COUNT + 5))
     if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
-        echo "  Still waiting for CSV to appear... (${WAIT_COUNT}s/${MAX_WAIT_CSV}s)"
-        echo "    Checking available CSVs..."
-        oc get csv -n openshift-operators -o name 2>/dev/null | grep -i rhtas | head -3 || oc get csv -n openshift-operators -o name 2>/dev/null | head -3 || echo "    No CSVs found yet"
+        echo "  Still waiting for RHTAS operator... (${WAIT_COUNT}s/${MAX_WAIT_CSV}s)"
+        oc get pods -n openshift-operators --no-headers 2>/dev/null | grep -iE 'rhtas|trusted-artifact' | head -3 || true
     fi
 done
 
-if [ -z "$CSV_NAME" ]; then
-    echo "Error: Could not find RHTAS Operator CSV after ${MAX_WAIT_CSV} seconds"
-    echo "If InstallPlan is pending approval, the script should approve it automatically; check RBAC (cluster-admin) and:"
-    echo "  oc get installplan -n openshift-operators"
+if [ "$DEPLOYMENT_READY" != true ] && [ -z "$CSV_NAME" ]; then
+    echo "Error: RHTAS operator did not become ready after ${MAX_WAIT_CSV} seconds"
+    echo "  oc get pods -n openshift-operators | grep -iE 'rhtas|trusted-artifact'"
     echo "  oc get csv -n openshift-operators | grep -iE 'rhtas|trusted-artifact-signer'"
-    echo "  oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator"
+    echo "  oc get installplan -n openshift-operators"
     exit 1
 fi
+fi
 
-# OLM can leave CSV in Installing for a long time after the operator Deployment/Pods are actually ready.
-# Prefer exiting this wait when openshift-operators shows a healthy operator workload.
-rhtas_operator_controller_ready() {
-    local dep ready want n
-    n=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-    if [ "${n:-0}" -ge 1 ]; then
-        ready=$(oc get pods -n openshift-operators -l name=trusted-artifact-signer-operator -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.ready}{"\n"}{end}{end}' 2>/dev/null | grep -c true || echo 0)
-        if [ "${ready:-0}" -ge 1 ]; then
-            return 0
-        fi
-    fi
-    dep=$(oc get deployment -n openshift-operators -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -iE 'trusted-artifact-signer|rhtas' | head -1)
-    if [ -n "$dep" ]; then
-        ready=$(oc get deployment "$dep" -n openshift-operators -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
-        want=$(oc get deployment "$dep" -n openshift-operators -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)
-        if [ -n "${ready:-}" ] && [ "${want:-1}" != "0" ] && [ "$ready" = "$want" ]; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-# Wait for CSV to be in Succeeded phase AND deployment to be ready
+# Wait for CSV Succeeded only if the controller is not already Running.
+if [ "$DEPLOYMENT_READY" = true ]; then
+    echo "✓ RHTAS operator already ready — skipping CSV Succeeded wait"
+else
 echo "Waiting for RHTAS operator to be ready (preferring live Deployment/Pods over CSV phase alone)..."
-MAX_WAIT_CSV_INSTALL=600
+MAX_WAIT_CSV_INSTALL=180
 WAIT_COUNT=0
 CSV_SUCCEEDED=false
 DEPLOYMENT_READY=false
@@ -1306,11 +1326,12 @@ elif [ "$DEPLOYMENT_READY" = false ] && [ -n "$DEPLOYMENT_NAME" ]; then
     echo ""
     echo "Continuing, but operator pods may not be running..."
 fi
+fi
 
 # Wait for CRDs to be installed
 echo ""
 echo "Waiting for RHTAS CRDs to be installed..."
-MAX_WAIT_CRD=300
+MAX_WAIT_CRD=120
 WAIT_COUNT=0
 CRDS_INSTALLED=false
 
@@ -1372,7 +1393,7 @@ if [ -z "$DEPLOYMENT_NAME" ]; then
     fi
 fi
 
-MAX_WAIT_PODS=300
+MAX_WAIT_PODS=120
 WAIT_COUNT=0
 OPERATOR_PODS_READY=false
 

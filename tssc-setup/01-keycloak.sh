@@ -60,8 +60,26 @@ log "✓ Cluster admin privileges confirmed"
 log "Prerequisites validated successfully"
 log ""
 
-# Operator controller Running is the install success signal. CSV listing can lag while
-# the redhat-operator-index catalog unpacks (often several minutes on first pull).
+# Live Keycloak (RHBK or RH-SSO): Running pods and/or a route. CR Ready can lag or use a different condition type.
+keycloak_instance_usable() {
+    local ns=$1
+    [ -z "$ns" ] && return 1
+    oc get namespace "$ns" >/dev/null 2>&1 || return 1
+    if oc get pods -n "$ns" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qiE 'keycloak|rhbk'; then
+        return 0
+    fi
+    if oc get route -n "$ns" --no-headers 2>/dev/null | awk '{print $1}' | grep -qiE 'keycloak|rhbk|^sso$'; then
+        return 0
+    fi
+    if oc get statefulset keycloak -n "$ns" -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -qE '^[1-9]'; then
+        return 0
+    fi
+    if oc get deployment -n "$ns" -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].status.readyReplicas}' 2>/dev/null | grep -qE '^[1-9]'; then
+        return 0
+    fi
+    return 1
+}
+
 rhsso_operator_pod_running() {
     local ns=$1 podc
     [ -z "$ns" ] && return 1
@@ -89,27 +107,6 @@ rhsso_operator_ready_in_namespace() {
     rhsso_operator_pod_running "$1"
 }
 
-wait_for_catalogsource_ready() {
-    local name=$1 ns=$2
-    local max_wait=900 wait_count=0 status=""
-    log "Waiting for CatalogSource '$name' to become READY (index image pull can take several minutes)..."
-    while [ "$wait_count" -lt "$max_wait" ]; do
-        status=$(oc get catalogsource "$name" -n "$ns" -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
-        if [ "$status" = "READY" ]; then
-            log "✓ CatalogSource is READY"
-            return 0
-        fi
-        if [ $((wait_count % 30)) -eq 0 ]; then
-            log "  CatalogSource status: ${status:-unknown} (${wait_count}s/${max_wait}s)"
-            oc get pods -n "$ns" --no-headers 2>/dev/null | grep -i catalog | head -5 || true
-        fi
-        sleep 10
-        wait_count=$((wait_count + 10))
-    done
-    warning "CatalogSource not READY after ${max_wait}s (status: ${status:-unknown}); continuing to wait on the operator"
-    return 0
-}
-
 # Check if Keycloak / RHSSO is already available
 log "Checking if Keycloak is already installed..."
 NAMESPACE="rhsso"
@@ -117,21 +114,22 @@ OPERATOR_INSTALLED=false
 KEYCLOAK_RHBK_RES="keycloaks.k8s.keycloak.org"
 KEYCLOAK_LEGACY_RES="keycloaks.keycloak.org"
 
-# Lab clusters often already have Red Hat build of Keycloak in namespace "keycloak".
-# Prefer that over pulling a namespaced redhat-operator-index just to install RH-SSO.
-if oc get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1; then
-    for kns in keycloak rhsso; do
-        oc get namespace "$kns" >/dev/null 2>&1 || continue
+# Lab clusters already ship Keycloak (usually RHBK in namespace "keycloak").
+# Never pull redhat-operator-index just to install RH-SSO — that index image dominates setup time.
+for kns in keycloak rhsso; do
+    oc get namespace "$kns" >/dev/null 2>&1 || continue
+    kcname=""
+    if oc get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1; then
         kcname=$(oc get "$KEYCLOAK_RHBK_RES" -n "$kns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-        if [ -n "$kcname" ]; then
-            log "✓ Found existing Keycloak (k8s.keycloak.org) '$kcname' in namespace $kns"
-            log "Skipping RH-SSO operator installation; will use this instance."
-            OPERATOR_INSTALLED=true
-            NAMESPACE="$kns"
-            break
-        fi
-    done
-fi
+    fi
+    if [ -n "$kcname" ] || keycloak_instance_usable "$kns"; then
+        log "✓ Found existing Keycloak in namespace $kns${kcname:+ (CR '$kcname')}"
+        log "Skipping RH-SSO operator installation; will use this instance."
+        OPERATOR_INSTALLED=true
+        NAMESPACE="$kns"
+        break
+    fi
+done
 
 if [ "$OPERATOR_INSTALLED" = false ] && oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
     log "Namespace $NAMESPACE already exists"
@@ -181,48 +179,17 @@ EOF
     fi
     log "✓ OperatorGroup created successfully (targeting namespace: $NAMESPACE)"
 
-    # Step 3: Catalog — prefer the cluster marketplace; fall back to a namespaced 4.15 index
-    # because rhsso-operator is often absent from newer OpenShift catalogs.
+    # Step 3: Subscribe from the cluster marketplace only (no extra operator-index pull).
     log ""
-    log "Step 3: Creating/verifying CatalogSource..."
+    log "Step 3: Using cluster Operator catalog..."
 
-    CATALOG_SOURCE_NAME="rhsso-operator-catalogsource"
     SUB_SOURCE="redhat-operators"
     SUB_SOURCE_NS="openshift-marketplace"
 
-    if oc get packagemanifest rhsso-operator -n openshift-marketplace >/dev/null 2>&1; then
-        log "✓ Found rhsso-operator in openshift-marketplace (redhat-operators)"
-    else
-        log "rhsso-operator is not in the cluster catalog; using redhat-operator-index:v4.15"
-        SUB_SOURCE="$CATALOG_SOURCE_NAME"
-        SUB_SOURCE_NS="$NAMESPACE"
-
-        if oc get catalogsource "$CATALOG_SOURCE_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
-            log "CatalogSource '$CATALOG_SOURCE_NAME' already exists"
-        else
-            log "Creating CatalogSource '$CATALOG_SOURCE_NAME'..."
-            if ! cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: CatalogSource
-metadata:
-  name: $CATALOG_SOURCE_NAME
-  namespace: $NAMESPACE
-spec:
-  sourceType: grpc
-  image: registry.redhat.io/redhat/redhat-operator-index:v4.15
-  displayName: RHSSO Operator Catalog
-  publisher: Red Hat
-  updateStrategy:
-    registryPoll:
-      interval: 30m
-EOF
-            then
-                error "Failed to create CatalogSource"
-            fi
-            log "✓ CatalogSource created"
-        fi
-        wait_for_catalogsource_ready "$CATALOG_SOURCE_NAME" "$NAMESPACE"
+    if ! oc get packagemanifest rhsso-operator -n openshift-marketplace >/dev/null 2>&1; then
+        error "No Keycloak instance found and rhsso-operator is not in openshift-marketplace. This lab expects Keycloak (namespace keycloak) to already be present."
     fi
+    log "✓ Found rhsso-operator in openshift-marketplace"
 
     # Step 4: Create the Subscription (no startingCSV pin — OLM resolves the channel CSV)
     log ""
@@ -259,11 +226,10 @@ EOF
 
     # Step 5: Wait for the operator pod (CSV name/version is not assumed)
     log ""
-    log "Step 5: Waiting for RHSSO operator to come up..."
-    log "Catalog unpack and operator image pull can take several minutes."
+    log "Step 5: Waiting for RHSSO operator to come up (pod Running, up to 3 minutes)..."
     log ""
 
-    MAX_WAIT=900
+    MAX_WAIT=180
     WAIT_COUNT=0
     OPERATOR_READY=false
 
@@ -553,14 +519,25 @@ fi
 # Wait for Keycloak instance to be ready
 log ""
 log "Waiting for Keycloak instance to be ready..."
+
+if keycloak_instance_usable "$NAMESPACE"; then
+    log "✓ Keycloak is already serving (Running pods and/or route)"
+    KEYCLOAK_READY=true
+else
 log "Note: Transient reconciliation conflicts are normal during startup and will be retried automatically."
-MAX_WAIT=900
+MAX_WAIT=180
 WAIT_COUNT=0
 KEYCLOAK_READY=false
 LAST_PHASE=""
 LAST_MESSAGE=""
 
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+    if keycloak_instance_usable "$NAMESPACE"; then
+        KEYCLOAK_READY=true
+        log "✓ Keycloak instance is ready (workload)"
+        break
+    fi
+
     # Check if CR exists first
     if ! oc get "$KEYCLOAK_GET_RES" "$KEYCLOAK_CR_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
         if [ $((WAIT_COUNT % 30)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
@@ -743,6 +720,7 @@ if [ "$KEYCLOAK_READY" = false ]; then
     fi
 else
     log "✓ Keycloak instance is ready"
+fi
 fi
 
 # Get Keycloak URLs and credentials

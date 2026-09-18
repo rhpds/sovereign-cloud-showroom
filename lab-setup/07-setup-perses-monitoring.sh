@@ -197,14 +197,22 @@ verify_after_apply() {
 
 wait_for_coo_csv_succeeded() {
   local ns="${COO_OPERATOR_NS}"
-  local max_wait="${COO_CSV_WAIT_SEC:-600}"
+  local max_wait="${COO_CSV_WAIT_SEC:-180}"
   local elapsed=0
-  local step=15
+  local step=10
   local phase=""
   local name=""
 
-  log "Waiting for Cluster Observability Operator CSV (Succeeded)..."
+  log "Waiting for Cluster Observability Operator (pod Running or CSV Succeeded)..."
+  if oc get pods -n "${ns}" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qiE 'cluster-observability|coo-'; then
+    log "✓ Cluster Observability Operator pod is Running"
+    return 0
+  fi
   while [ "${elapsed}" -lt "${max_wait}" ]; do
+    if oc get pods -n "${ns}" --no-headers 2>/dev/null | awk '$3=="Running"' | grep -qiE 'cluster-observability|coo-'; then
+      log "✓ Cluster Observability Operator pod is Running"
+      return 0
+    fi
     name=$(oc get csv -n "${ns}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -Ei 'cluster-observability' | head -1 || true)
     if [ -n "${name}" ]; then
       phase=$(oc get csv "${name}" -n "${ns}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
@@ -214,12 +222,12 @@ wait_for_coo_csv_succeeded() {
       fi
       log "  COO CSV: ${name} phase=${phase} (${elapsed}s / ${max_wait}s)"
     else
-      log "  Waiting for COO CSV to appear (${elapsed}s / ${max_wait}s)..."
+      log "  Waiting for COO operator (${elapsed}s / ${max_wait}s)..."
     fi
     sleep "${step}"
     elapsed=$((elapsed + step))
   done
-  warn "COO CSV not Succeeded within ${max_wait}s — check: oc get csv -n ${ns}; continuing (MonitoringStack loop may still wait on CRDs)"
+  warn "COO not ready within ${max_wait}s — check: oc get pods,csv -n ${ns}; continuing (MonitoringStack loop may still wait on CRDs)"
   return 0
 }
 
@@ -305,7 +313,7 @@ prometheus_stack_observable() {
 # Wait for operator Prometheus workload: discovered STS/Deploy rollout, else pod readiness.
 wait_for_coo_prometheus_ready() {
   local attempt_label="$1"
-  local max_wait="${COO_PROMETHEUS_WAIT_SEC:-300}"
+  local max_wait="${COO_PROMETHEUS_WAIT_SEC:-120}"
   local elapsed=0
   local step_wait=10
   local target
@@ -489,9 +497,9 @@ fi
 
 echo ""
 log "Installing Perses and configuring the RHACS dashboard..."
-sleep "${MONITORING_PRE_PERSES_SLEEP_SEC:-15}"
+sleep "${MONITORING_PRE_PERSES_SLEEP_SEC:-3}"
 
-VERIFY_SEC="${MONITORING_RESOURCE_VERIFY_SEC:-180}"
+VERIFY_SEC="${MONITORING_RESOURCE_VERIFY_SEC:-60}"
 UI_PLUGIN_YAML="$MONITORING_DIR/perses/ui-plugin.yaml"
 DATASOURCE_YAML="$MONITORING_DIR/perses/datasource.yaml"
 DASHBOARD_YAML="$MONITORING_DIR/perses/dashboard.yaml"
@@ -540,7 +548,7 @@ is_role_not_ready_error() {
 
 # Poll until GET /v1/roles includes "Prometheus Server" (declarative config processed)
 wait_for_prometheus_server_role() {
-  local max_s="${1:-600}"
+  local max_s="${1:-180}"
   local slept=0
   local interval=15
   log "Waiting for declarative role 'Prometheus Server' in RHACS API (GET /v1/roles, up to ${max_s}s)..."
@@ -646,8 +654,8 @@ spec:
 fi
 
 # Give Central time to process declarative config (roles) after startup
-log "Waiting for declarative config to be processed (30s)..."
-sleep 30
+log "Waiting for declarative config to be processed..."
+wait_for_prometheus_server_role 30 || true
 
 # Wait for Central API to be ready (may take a moment after restart)
 log "Checking Central API readiness..."
