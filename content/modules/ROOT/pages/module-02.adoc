@@ -213,6 +213,8 @@ Let's look at an example of how we can use Policy-as-Code to block anomalous beh
 .Procedure
 . *Apply the following policy configuration via copy paste into the terminal*. It will create a security policy to enforce runtime protection against package manager execution. 
 +
+Note: This policy can also be created using the RHACS web GUI.
++
 [source,bash,subs="+macros,+attributes",role=execute]
 ----
 oc apply -f - <<EOF
