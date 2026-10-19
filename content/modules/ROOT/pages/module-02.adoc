@@ -161,7 +161,7 @@ image::assurance-05.png[Scan schedule menu with Run scan option, link=self, wind
 +
 image::assurance-06.png[Compliance scan running, link=self, window=blank, width=100%]
 +
-. Head over to the OpenShift coverage section where you can view all of the details from the scan.
+. Head over to the OpenShift coverage section where you can view all of the details from the scan (details will be availble once the scan completes).
 +
 image::assurance-07.png[OpenShift coverage scan results, link=self, window=blank, width=100%]
 +
