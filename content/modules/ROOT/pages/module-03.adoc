@@ -8,7 +8,9 @@
 
 *Own your software supply chain.*
 
-Ingest, build, sign, attest and secure your software supply chain. Start from a verified link:{docs-hardened-images-url}[Red Hat Hardened Image^], then take control with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain sovereignty over your software artifacts and dependencies throughout their entire lifecycle.
+Ingest, build, sign, attest and secure your software supply chain. Start from a verified link:{docs-hardened-images-url}[Red Hat Hardened Image^], then take control with cryptographic signing, verification, and Software Bills of Materials (SBOMs). These practices enable you to maintain sovereignty over your software artifacts and dependencies throughout their entire lifecycle.  
+
+In this module we will be manually cryptographically signing and verifying container images using Cosign, but typically this process is automated as a task in your CI/CD pipeline.
 
 [[setup]]
 == Installation and Setup
