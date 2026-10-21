@@ -35,9 +35,9 @@ We are going to deploy a bunch of insecure applications to the local cluster and
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cd ~ && git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab
-cd ~/svc-lab
-bash setup.sh
+cd ~
+git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab || true
+cd ~/svc-lab && bash setup.sh
 ----
 
 [IMPORTANT]
