@@ -24,13 +24,26 @@ Through hands-on activities, you will:
 * Establish audit trails and compliance reporting for regulatory demonstrations
 * Design disaster recovery scenarios that maintain geographic data constraints
 
-[[prerequisites]]
-== Prerequisites
+=== First Step: Install Insecure Applications  
 
-Before beginning this lab, you should have:
+We are going to deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
 
-* Solid OpenShift administration experience
-* Familiarity with multi-cluster concepts
+*Procedure*
+
+[start=1]
+. Copy and paste the following commands into the *Terminal tab* on the right side of the screen.
++
+[source,sh,subs="attributes",role=execute]
+----
+cd ~ && git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab
+cd ~/svc-lab
+bash setup.sh
+----
+
+[IMPORTANT]
+====
+The following command can run while you work on the first module. You do not have to wait for it to finish before starting module 1. 
+====
 
 [[lab-modules]]
 == Lab Modules
@@ -57,27 +70,6 @@ The environment has also already been pre-configured for you with the following 
 ** *Quay*: the console for image registry and artifacts
 ** *OpenShift AI*: the console for building and training AI models via Jupyter notebooks and specialized accelerators
 ** *Terminal*: command line access to the OpenShift environment. You will run commands in this tab to deploy a few initial settings and interact with the applications.
-
-=== Install Insecure Applications While You Work on Module 1
-
-We are going to deploy a bunch of insecure applications to the local cluster and ensure the lab is set up correctly.
-
-*Procedure*
-
-[start=1]
-. Copy and paste the following commands into the *Terminal tab* on the right side of the screen.
-+
-[source,sh,subs="attributes",role=execute]
-----
-cd ~ && git clone https://github.com/rhpds/sovereign-cloud-showroom.git svc-lab
-cd ~/svc-lab
-bash setup.sh
-----
-
-[IMPORTANT]
-====
-The following command can run while you work on the first module. You do not have to wait for it to finish before starting module 1. 
-====
 
 === OpenShift Console Access (and RHACM Console Access)
 
